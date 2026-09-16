@@ -3,26 +3,30 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import shutil
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from omega.core.errors import ErrorCode, ToolError
 from omega.core.schemas import (
+    Evidence,
     ToolCapability,
     ToolExecutionRequest,
     ToolResult,
     ToolRiskLevel,
-    Evidence,
+    content_hash,
     new_id,
     now_utc,
-    content_hash,
 )
-from omega.scope import ScopeEngine
-from omega.storage import Database
+
+if TYPE_CHECKING:
+    from omega.scope import ScopeEngine
+    from omega.storage import Database
 
 logger = logging.getLogger("omega.tools")
 
@@ -64,13 +68,87 @@ class ToolAdapter(ABC):
 
     def _find_binary(self) -> str | None:
         """Find the tool binary in PATH."""
-        cap = self.capabilities()
         names = [self.name()]
         for name in names:
             path = shutil.which(name)
             if path:
                 return path
         return None
+
+    def _require_binary(self) -> str:
+        """Return the resolved binary path, raising ``ToolError(BINARY_MISSING)`` otherwise."""
+        path = self._find_binary()
+        if not path:
+            raise ToolError(ErrorCode.BINARY_MISSING, self._binary_missing_hint())
+        return path
+
+    def _binary_missing_hint(self) -> str:
+        return (
+            f"Required binary '{self.name()}' not found in PATH. "
+            "Install it (see README 'External binaries' for one-line install commands) "
+            "and retry."
+        )
+
+    def _missing_binary_result(self) -> ToolResult:
+        """Structured failure ToolResult for a missing binary (non-raising)."""
+        return ToolResult(
+            id=new_id(), tool_name=self.name(), success=False,
+            error=f"BINARY_MISSING: {self._binary_missing_hint()}",
+            created_at=now_utc(), updated_at=now_utc(),
+        )
+
+    def _max_output_bytes(self) -> int:
+        """Output cap for this tool from the config layer (default 2 MB)."""
+        try:
+            from omega.config import get_config
+            return get_config().tool_config(self.name()).max_output_bytes
+        except Exception:
+            return 2_000_000
+
+    def _run_failure(self, stdout: str, stderr: str, rc: int,
+                     duration_ms: float) -> ToolResult | None:
+        """Normalize a subprocess run into a structured failure ToolResult.
+
+        Returns ``None`` when the run succeeded (``rc == 0``). On failure the
+        stderr text is surfaced as the error message, prefixed with the most
+        appropriate error code: ``TIMEOUT`` (rc -1 + timed-out stderr),
+        ``BINARY_MISSING`` (rc 127), otherwise ``INTERNAL``.
+        """
+        if rc == 0:
+            return None
+        msg = (stderr or "").strip() or f"'{self.name()}' exited with code {rc}"
+        msg = msg[:400]
+        if rc == -1 and "timed out" in (stderr or "").lower():
+            code = ErrorCode.TIMEOUT.value
+        elif rc == 127:
+            code = ErrorCode.BINARY_MISSING.value
+        else:
+            code = ErrorCode.INTERNAL.value
+        return ToolResult(
+            id=new_id(), tool_name=self.name(), success=False,
+            error=f"{code}: {msg}",
+            duration_ms=duration_ms, created_at=now_utc(), updated_at=now_utc(),
+        )
+
+    def _binary_missing_run(self, cmd: list[str]) -> tuple[str, str, int, float] | None:
+        """Detect a missing ``cmd[0]`` up front and return a structured run.
+
+        Returns None when the binary exists; otherwise an ``(stdout, stderr, rc,
+        duration_ms)`` tuple with rc=127 and an install hint in stderr, matching
+        the contract of ``_run_subprocess``.
+        """
+        candidate = cmd[0]
+        if os.path.isabs(candidate) and os.access(candidate, os.X_OK):
+            return None
+        if not os.path.isabs(candidate) and shutil.which(candidate):
+            return None
+        return (
+            "",
+            f"Command not found: '{candidate}'. Install it and ensure it is on PATH "
+            "(see README 'External binaries').",
+            127,
+            0.0,
+        )
 
     async def _run_subprocess(
         self,
@@ -79,7 +157,15 @@ class ToolAdapter(ABC):
         max_output_bytes: int = 2_000_000,
         env: dict[str, str] | None = None,
     ) -> tuple[str, str, int, float]:
-        """Run a subprocess safely. Returns (stdout, stderr, returncode, duration_ms)."""
+        """Run a subprocess safely. Returns (stdout, stderr, returncode, duration_ms).
+
+        The target binary is resolved through the shared existence check: a
+        missing binary yields rc=127 with an install hint in stderr instead of a
+        bare OSError. Output is capped at ``max_output_bytes``.
+        """
+        missing = self._binary_missing_run(cmd)
+        if missing is not None:
+            return missing
         start = time.monotonic()
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -95,13 +181,20 @@ class ToolAdapter(ABC):
             stderr_str = stderr.decode("utf-8", errors="replace")[:max_output_bytes]
 
             return stdout_str, stderr_str, proc.returncode or 0, duration
-        except asyncio.TimeoutError:
+        except TimeoutError:
             duration = (time.monotonic() - start) * 1000
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             return "", f"Command timed out after {timeout}s", -1, duration
+        except FileNotFoundError:
+            duration = (time.monotonic() - start) * 1000
+            return (
+                "",
+                f"Command not found: '{cmd[0]}'. Install it and ensure it is on PATH "
+                "(see README 'External binaries').",
+                127,
+                duration,
+            )
         except Exception as e:
             duration = (time.monotonic() - start) * 1000
             return "", str(e), -1, duration
@@ -114,7 +207,14 @@ class ToolAdapter(ABC):
         max_output_bytes: int = 2_000_000,
         env: dict[str, str] | None = None,
     ) -> tuple[str, str, int, float]:
-        """Run a subprocess with optional stdin input. Returns (stdout, stderr, returncode, duration_ms)."""
+        """Run a subprocess with optional stdin input. Returns (stdout, stderr, returncode, duration_ms).
+
+        Identical hardening to :meth:`_run_subprocess`: missing binary -> rc=127
+        with install hint, output capped at ``max_output_bytes``.
+        """
+        missing = self._binary_missing_run(cmd)
+        if missing is not None:
+            return missing
         start = time.monotonic()
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -132,13 +232,20 @@ class ToolAdapter(ABC):
                 proc.returncode or 0,
                 duration,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             duration = (time.monotonic() - start) * 1000
-            try:
+            with contextlib.suppress(Exception):
                 proc.kill()
-            except Exception:
-                pass
             return "", f"Timed out after {timeout}s", -1, duration
+        except FileNotFoundError:
+            duration = (time.monotonic() - start) * 1000
+            return (
+                "",
+                f"Command not found: '{cmd[0]}'. Install it and ensure it is on PATH "
+                "(see README 'External binaries').",
+                127,
+                duration,
+            )
         except Exception as e:
             duration = (time.monotonic() - start) * 1000
             return "", str(e), -1, duration

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import shutil
-import time
 from typing import Any
 
-from omega.tools import ToolAdapter, ToolRegistry
 from omega.core.schemas import ToolCapability, ToolExecutionRequest, ToolResult, ToolRiskLevel, new_id, now_utc
+from omega.tools import ToolAdapter, ToolRegistry
 
 logger = logging.getLogger("omega.recon")
 
@@ -30,9 +27,8 @@ class SubfinderAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="subfinder", success=False, error="subfinder not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         cmd = ["subfinder", "-d", request.target, "-silent", "-json"]
         cmd.extend(request.parameters.get("extra_args", []))
@@ -40,10 +36,12 @@ class SubfinderAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 120),
+            max_output_bytes=self._max_output_bytes(),
         )
 
-        if rc != 0 and not stdout:
-            return ToolResult(id=new_id(), tool_name="subfinder", success=False, error=stderr or "subfinder failed", duration_ms=duration, created_at=now_utc(), updated_at=now_utc())
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         subdomains = []
         for line in stdout.strip().split("\n"):
@@ -86,9 +84,8 @@ class HttpxAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="httpx", success=False, error="httpx not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         targets = request.parameters.get("targets", [request.target])
         input_text = "\n".join(targets).rstrip("\n") + "\n"
@@ -104,10 +101,12 @@ class HttpxAdapter(ToolAdapter):
             cmd,
             input_data=input_text.encode("utf-8"),
             timeout=request.parameters.get("timeout", 120),
+            max_output_bytes=self._max_output_bytes(),
         )
 
-        if rc != 0 and not stdout:
-            return ToolResult(id=new_id(), tool_name="httpx", success=False, error=stderr or "httpx failed", duration_ms=duration, created_at=now_utc(), updated_at=now_utc())
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         live_hosts = []
         for line in stdout.strip().split("\n"):
@@ -162,9 +161,8 @@ class NmapAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="nmap", success=False, error="nmap not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         ports = request.parameters.get("ports", "1-10000")
         scan_type = request.parameters.get("scan_type", "syn")
@@ -181,7 +179,12 @@ class NmapAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 600),
+            max_output_bytes=self._max_output_bytes(),
         )
+
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         services = []
         if stdout:
@@ -244,9 +247,8 @@ class FfufAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="ffuf", success=False, error="ffuf not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         url = request.target
         wordlist = request.parameters.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
@@ -264,7 +266,16 @@ class FfufAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 300),
+            max_output_bytes=self._max_output_bytes(),
         )
+
+        # ffuf exits 1 when a scan completes but finds no matches — that is a
+        # valid outcome, not a failure. All other nonzero codes (2 = bad usage /
+        # missing wordlist, -1 = timeout) fail through the shared wrapper.
+        effective_rc = 0 if rc == 1 else rc
+        failure = self._run_failure(stdout, stderr, effective_rc, duration)
+        if failure:
+            return failure
 
         results = []
         if stdout:
@@ -307,24 +318,41 @@ class WhatWebAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="whatweb", success=False, error="whatweb not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         import tempfile as _tmp
         with _tmp.NamedTemporaryFile(suffix=".json", delete=False) as tf:
             tmp_path = tf.name
-        cmd = ["whatweb", "--color=never", "-a", "3", f"--log-json={tmp_path}", request.target]
+        cmd = ["whatweb", "--color=never", "-a", "3", "--log-json=" + tmp_path, request.target]
         cmd.extend(request.parameters.get("extra_args", []))
         timeout = request.parameters.get("timeout", 30)
 
         try:
-            stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
-            with open(tmp_path) as f:
-                stdout = f.read()
-        except Exception:
-            stdout = ""
-            duration = 0
+            stdout, stderr, rc, duration = await self._run_subprocess(
+                cmd,
+                timeout=timeout,
+                max_output_bytes=self._max_output_bytes(),
+            )
+            failure = self._run_failure(stdout, stderr, rc, duration)
+            if failure:
+                return failure
+            try:
+                with open(tmp_path, encoding="utf-8") as f:
+                    stdout = f.read()
+            except OSError as exc:
+                return ToolResult(
+                    id=new_id(), tool_name="whatweb", success=False,
+                    error="INTERNAL: failed to read whatweb JSON output: " + str(exc),
+                    duration_ms=duration, target=request.target,
+                    created_at=now_utc(), updated_at=now_utc(),
+                )
+        except Exception as exc:
+            return ToolResult(
+                id=new_id(), tool_name="whatweb", success=False,
+                error=f"INTERNAL: {type(exc).__name__}: {exc}",
+                created_at=now_utc(), updated_at=now_utc(),
+            )
         finally:
             try:
                 import os as _os
@@ -367,17 +395,22 @@ class GobusterAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="gobuster", success=False, error="gobuster not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         timeout = request.parameters.get("timeout", 60)
-        mode = request.parameters.get("mode", "dir")
         wordlist = request.parameters.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
         cmd = ["gobuster", "dir", "-u", request.target, "-w", wordlist, "-q", "--no-error"]
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
+        stdout, stderr, rc, duration = await self._run_subprocess(
+            cmd,
+            timeout=timeout,
+            max_output_bytes=self._max_output_bytes(),
+        )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         paths = []
         for line in stdout.strip().split("\n"):
@@ -412,9 +445,8 @@ class KatanaAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="katana", success=False, error="katana not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         depth = request.parameters.get("depth", 2)
         timeout = request.parameters.get("timeout", 30)
@@ -423,7 +455,14 @@ class KatanaAdapter(ToolAdapter):
         cmd = ["katana", "-u", request.target, "-d", str(depth), "-jc", "-silent", "-jsonl", "-timeout", str(katana_timeout)]
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
+        stdout, stderr, rc, duration = await self._run_subprocess(
+            cmd,
+            timeout=timeout,
+            max_output_bytes=self._max_output_bytes(),
+        )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         urls = []
         for line in stdout.strip().split("\n"):
@@ -459,9 +498,8 @@ class NucleiAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="nuclei", success=False, error="nuclei not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         severity_filter = request.parameters.get("severity", "")
         templates = request.parameters.get("templates", "")
@@ -473,7 +511,14 @@ class NucleiAdapter(ToolAdapter):
             cmd.extend(["-t", templates])
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
+        stdout, stderr, rc, duration = await self._run_subprocess(
+            cmd,
+            timeout=timeout,
+            max_output_bytes=self._max_output_bytes(),
+        )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         findings: list[dict[str, Any]] = []
         for line in stdout.strip().split("\n"):
@@ -533,15 +578,21 @@ class NiktoAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="nikto", success=False, error="nikto not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         timeout = request.parameters.get("timeout", 120)
         cmd = ["nikto", "-h", request.target, "-Format", "json", "-output", "/dev/stdout"]
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
+        stdout, stderr, rc, duration = await self._run_subprocess(
+            cmd,
+            timeout=timeout,
+            max_output_bytes=self._max_output_bytes(),
+        )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         vulns: list[dict[str, Any]] = []
         server_info: dict[str, str] = {}
@@ -594,9 +645,8 @@ class NaabuAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="naabu", success=False, error="naabu not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         ports = request.parameters.get("ports", "")
         cmd = ["naabu", "-host", request.target, "-json", "-silent"]
@@ -607,7 +657,11 @@ class NaabuAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 300),
+            max_output_bytes=self._max_output_bytes(),
         )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         open_ports: list[dict[str, Any]] = []
         for line in stdout.strip().split("\n"):
@@ -662,9 +716,8 @@ class WafW00fAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="wafw00f", success=False, error="wafw00f not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         cmd = ["wafw00f", request.target, "-o", "/dev/stdout", "-f", "json", "-a"]
         cmd.extend(request.parameters.get("extra_args", []))
@@ -672,7 +725,11 @@ class WafW00fAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 120),
+            max_output_bytes=self._max_output_bytes(),
         )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         waf_info: list[dict[str, Any]] = []
         firewalls: list[str] = []
@@ -737,9 +794,8 @@ class GospiderAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="gospider", success=False, error="gospider not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         depth = request.parameters.get("depth", 2)
         cmd = ["gospider", "-s", request.target, "-d", str(depth), "--json", "-c", "10", "-t", "10"]
@@ -748,7 +804,11 @@ class GospiderAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 300),
+            max_output_bytes=self._max_output_bytes(),
         )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         urls: list[dict[str, Any]] = []
         js_urls: list[str] = []
@@ -813,9 +873,8 @@ class DnsxAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="dnsx", success=False, error="dnsx not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         mode = request.parameters.get("mode", "resolve")
         cmd = ["dnsx", "-json", "-silent"]
@@ -836,8 +895,14 @@ class DnsxAdapter(ToolAdapter):
             input_data = request.target.encode()
 
         stdout, stderr, rc, duration = await self._run_subprocess_with_input(
-            cmd, input_data=input_data, timeout=request.parameters.get("timeout", 120)
+            cmd,
+            input_data=input_data,
+            timeout=request.parameters.get("timeout", 120),
+            max_output_bytes=self._max_output_bytes(),
         )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         dns_records: list[dict[str, Any]] = []
         for line in stdout.strip().split("\n"):
@@ -898,9 +963,8 @@ class MasscanAdapter(ToolAdapter):
         )
 
     async def execute(self, request: ToolExecutionRequest) -> ToolResult:
-        binary = self._find_binary()
-        if not binary:
-            return ToolResult(id=new_id(), tool_name="masscan", success=False, error="masscan not found", created_at=now_utc(), updated_at=now_utc())
+        if not self._find_binary():
+            return self._missing_binary_result()
 
         ports = request.parameters.get("ports", "1-65535")
         rate = request.parameters.get("rate", "1000")
@@ -916,7 +980,11 @@ class MasscanAdapter(ToolAdapter):
         stdout, stderr, rc, duration = await self._run_subprocess(
             cmd,
             timeout=request.parameters.get("timeout", 600),
+            max_output_bytes=self._max_output_bytes(),
         )
+        failure = self._run_failure(stdout, stderr, rc, duration)
+        if failure:
+            return failure
 
         open_ports: list[dict[str, Any]] = []
         # Masscan JSON output has trailing comma issues, fix them

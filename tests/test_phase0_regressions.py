@@ -172,7 +172,8 @@ async def assert_denied(session: ClientSession, tool: str, args: dict) -> None:
     data = _json(r)
     assert isinstance(data, dict), f"{tool} did not return an object: {data}"
     assert "error" in data, f"{tool} was not gated: {data}"
-    assert "scope" in data["error"].lower(), f"{tool} error not scope-related: {data}"
+    err = data["error"]
+    assert isinstance(err, dict) and err.get("code") == "SCOPE_DENIED", f"{tool} error not scope-related: {data}"
 
 
 @pytest.mark.asyncio
@@ -240,7 +241,8 @@ async def test_scope_gated_tools_allow_after_include_rule():
         r = await _call(s, "omega_recon_probe", {"target": "http://target.example.com", "engagement_id": eid})
         data = _json(r)
         # Should NOT be a scope denial; execution proceeds (binary may be absent/fail, but not scope-blocked)
-        assert "Scope denied" not in (data.get("error") or "")
+        err = data.get("error")
+        assert not (isinstance(err, dict) and err.get("code") == "SCOPE_DENIED"), f"unexpected scope denial: {data}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

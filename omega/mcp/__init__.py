@@ -34,6 +34,7 @@ from omega.core.schemas import (
     Engagement, EngagementMode, Finding, Hypothesis, Severity, Confidence,
     ValidationStatus, new_id, now_utc,
 )
+from omega.core.errors import ErrorCode, ToolError, guarded_tool
 
 logger = logging.getLogger("omega.server")
 
@@ -78,8 +79,8 @@ class OmegaServer:
         if self.db:
             await self.db.close()
 
-    async def _scope_denial(self, engagement_id: str, target: str, action: str, risk_level: str = "passive") -> str | None:
-        """Authorize `target` for `action`. Returns an error payload if denied, else None.
+    async def _scope_denial(self, engagement_id: str, target: str, action: str, risk_level: str = "passive") -> None:
+        """Authorize `target` for `action`, raising :class:`ToolError` if denied.
 
         No engagement_id means the tool runs open-world (ungated), matching the
         design of the recon adapters. When an engagement is provided the full
@@ -89,11 +90,10 @@ class OmegaServer:
         orch = self.orchestrator
         assert orch
         if not engagement_id:
-            return None
+            return
         result = await orch.scope.authorize(engagement_id, target, action, risk_level)
         if not result.allowed:
-            return json.dumps({"error": f"Scope denied: {result.reason}"})
-        return None
+            raise ToolError(ErrorCode.SCOPE_DENIED, f"Scope denied: {result.reason}")
 
     def _register_tools(self) -> None:
         mcp = self.mcp
@@ -106,6 +106,7 @@ class OmegaServer:
             description="Create a new security engagement. Modes: ctf, bug_bounty, pentest, local_lab, analysis_only, reversing, api_security, web_security, network_security",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def engagement_create(name: str, mode: str = "analysis_only", description: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -117,6 +118,7 @@ class OmegaServer:
             description="List all engagements",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def engagement_list() -> str:
             db = server.db
             assert db
@@ -128,12 +130,13 @@ class OmegaServer:
             description="Get engagement details by ID",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def engagement_get(engagement_id: str) -> str:
             db = server.db
             assert db
             eng = await db.get_engagement(engagement_id)
             if not eng:
-                return json.dumps({"error": "Engagement not found"})
+                raise ToolError(ErrorCode.NOT_FOUND, "Engagement not found")
             rules = await db.get_scope_rules(engagement_id)
             assets = await db.get_assets(engagement_id)
             return json.dumps({"engagement": eng, "scope_rules": rules, "asset_count": len(assets)}, default=str)
@@ -145,6 +148,7 @@ class OmegaServer:
             description="Add a scope rule to an engagement. rule_type: 'include'|'exclude'. target_type: 'domain'|'wildcard'|'ip'|'cidr'|'url'|'port'. For CTF mode, targets are auto-included unless explicitly excluded.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def scope_add_rule(engagement_id: str, rule_type: str, target_type: str, pattern: str, description: str = "") -> str:
             db = server.db
             assert db
@@ -162,6 +166,7 @@ class OmegaServer:
             description="Check if a target is in scope for an engagement",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def scope_check(engagement_id: str, target: str) -> str:
             orch = server.orchestrator
             assert orch
@@ -173,6 +178,7 @@ class OmegaServer:
             description="List all scope rules for an engagement",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def scope_list_rules(engagement_id: str) -> str:
             db = server.db
             assert db
@@ -186,13 +192,11 @@ class OmegaServer:
             description="Enumerate subdomains using subfinder (passive, safe). Requires an engagement with target in scope.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def recon_subdomains(target: str, engagement_id: str = "", timeout: int = 120) -> str:
             orch = server.orchestrator
             assert orch
-            if engagement_id:
-                scope_check = await orch.scope.authorize_target(engagement_id, target)
-                if not scope_check.allowed:
-                    return json.dumps({"error": f"Scope denied: {scope_check.reason}"})
+            await server._scope_denial(engagement_id, target, "subfinder", "passive")
             adapter = SubfinderAdapter()
             request = ToolExecutionRequest(tool_name="subfinder", target=target, engagement_id=engagement_id, parameters={"timeout": timeout})
             result = await adapter.execute(request)
@@ -208,12 +212,9 @@ class OmegaServer:
             description="Probe live HTTP hosts using httpx. Pass targets as newline-separated list or a single target.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def recon_probe(target: str, engagement_id: str = "", targets: str = "", timeout: int = 120) -> str:
-            orch = server.orchestrator
-            assert orch
-            error = await server._scope_denial(engagement_id, target, "httpx", "passive")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, target, "httpx", "passive")
             adapter = HttpxAdapter()
             target_list = targets.split("\n") if targets else [target]
             request = ToolExecutionRequest(
@@ -228,13 +229,9 @@ class OmegaServer:
             description="Port scan using nmap. Scans for open ports and service detection.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def recon_portscan(target: str, ports: str = "1-1000", engagement_id: str = "", scan_type: str = "syn", timeout: int = 120) -> str:
-            orch = server.orchestrator
-            assert orch
-            if engagement_id:
-                scope_check = await orch.scope.authorize(engagement_id, target, "nmap", "active")
-                if not scope_check.allowed:
-                    return json.dumps({"error": f"Scope denied: {scope_check.reason}"})
+            await server._scope_denial(engagement_id, target, "nmap", "active")
             adapter = NmapAdapter()
             request = ToolExecutionRequest(
                 tool_name="nmap", target=target,
@@ -248,12 +245,9 @@ class OmegaServer:
             description="Directory/endpoint fuzzing using ffuf. Requires a target URL.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def recon_fuzz(target: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", engagement_id: str = "", extensions: str = "", timeout: int = 60) -> str:
-            orch = server.orchestrator
-            assert orch
-            error = await server._scope_denial(engagement_id, target, "ffuf", "active")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, target, "ffuf", "active")
             adapter = FfufAdapter()
             request = ToolExecutionRequest(
                 tool_name="ffuf", target=target,
@@ -268,10 +262,9 @@ class OmegaServer:
             description="Technology fingerprinting using whatweb",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def recon_tech(target: str, engagement_id: str = "", timeout: int = 30) -> str:
-            error = await server._scope_denial(engagement_id, target, "whatweb", "passive")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, target, "whatweb", "passive")
             adapter = WhatWebAdapter()
             request = ToolExecutionRequest(tool_name="whatweb", target=target, engagement_id=engagement_id, parameters={"timeout": timeout})
             result = await adapter.execute(request)
@@ -282,10 +275,9 @@ class OmegaServer:
             description="Crawl website and discover endpoints using katana",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def recon_crawl(target: str, depth: int = 2, engagement_id: str = "", timeout: int = 30) -> str:
-            error = await server._scope_denial(engagement_id, target, "katana", "passive")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, target, "katana", "passive")
             adapter = KatanaAdapter()
             request = ToolExecutionRequest(
                 tool_name="katana", target=target,
@@ -301,12 +293,11 @@ class OmegaServer:
             description="Analyze HTTP security headers of a URL (HSTS, CSP, X-Frame-Options, etc.)",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def web_headers(url: str, engagement_id: str = "") -> str:
             orch = server.orchestrator
             assert orch
-            error = await server._scope_denial(engagement_id, url, "web_headers")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, url, "web_headers")
             result = await orch.web.analyze_headers(url, engagement_id)
             return json.dumps(result, default=str)
 
@@ -315,12 +306,11 @@ class OmegaServer:
             description="Test CORS configuration of a URL for misconfigurations",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def web_cors(url: str, engagement_id: str = "") -> str:
             orch = server.orchestrator
             assert orch
-            error = await server._scope_denial(engagement_id, url, "web_cors")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, url, "web_cors")
             result = await orch.web.analyze_cors(url, engagement_id)
             return json.dumps(result, default=str)
 
@@ -329,12 +319,11 @@ class OmegaServer:
             description="Analyze cookies for security properties (HttpOnly, Secure, SameSite)",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def web_cookies(url: str, engagement_id: str = "") -> str:
             orch = server.orchestrator
             assert orch
-            error = await server._scope_denial(engagement_id, url, "web_cookies")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, url, "web_cookies")
             result = await orch.web.analyze_cookies(url, engagement_id)
             return json.dumps(result, default=str)
 
@@ -343,12 +332,11 @@ class OmegaServer:
             description="Extract endpoints from a page's HTML/JS",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def web_endpoints(url: str, engagement_id: str = "") -> str:
             orch = server.orchestrator
             assert orch
-            error = await server._scope_denial(engagement_id, url, "web_endpoints")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, url, "web_endpoints")
             resp = await orch.http.get(url)
             result = await orch.web.extract_endpoints(url, resp.get("body", ""), engagement_id)
             return json.dumps(result, default=str)
@@ -358,12 +346,11 @@ class OmegaServer:
             description="Full web security analysis: headers, CORS, cookies, endpoints",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def web_full_scan(target: str, engagement_id: str = "") -> str:
             orch = server.orchestrator
             assert orch
-            error = await server._scope_denial(engagement_id, target, "web_full_scan")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, target, "web_full_scan")
             result = await orch.web.full_scan(target, engagement_id)
             return json.dumps(result, default=str)
 
@@ -372,12 +359,11 @@ class OmegaServer:
             description="Analyze a JavaScript file for secrets, endpoints, and sensitive data",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def web_js_analyze(js_url: str, engagement_id: str = "") -> str:
             orch = server.orchestrator
             assert orch
-            error = await server._scope_denial(engagement_id, js_url, "web_js_analyze")
-            if error:
-                return error
+            await server._scope_denial(engagement_id, js_url, "web_js_analyze")
             result = await orch.web.analyze_javascript(js_url, engagement_id)
             return json.dumps(result, default=str)
 
@@ -388,6 +374,7 @@ class OmegaServer:
             description="Execute an HTTP request (GET/POST/PUT/PATCH/DELETE). Supports headers, cookies, body, JSON.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def http_request(
             method: str = "GET", url: str = "", headers: str = "", body: str = "",
             cookies: str = "", json_body: str = "", engagement_id: str = "",
@@ -395,9 +382,7 @@ class OmegaServer:
             orch = server.orchestrator
             assert orch
             risk = "active" if method.upper() not in ("GET", "HEAD", "OPTIONS") else "passive"
-            error = await server._scope_denial(engagement_id, url, "http_request", risk)
-            if error:
-                return error
+            await server._scope_denial(engagement_id, url, "http_request", risk)
             h = json.loads(headers) if headers else None
             c = json.loads(cookies) if cookies else None
             jb = json.loads(json_body) if json_body else None
@@ -421,6 +406,7 @@ class OmegaServer:
             description="Run an orchestrated security scan. scan_type: 'full', 'recon', 'web', 'ctf_web'. Coordinates multiple agents automatically.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
+        @guarded_tool()
         async def scan(target: str, engagement_id: str = "", scan_type: str = "full", parameters: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -436,6 +422,7 @@ class OmegaServer:
             description="Add a node to the asset graph. node_type: domain, subdomain, ip, port, service, url, endpoint, technology, finding, etc.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def graph_add_node(engagement_id: str, node_type: str, label: str, properties: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -448,6 +435,7 @@ class OmegaServer:
             description="Add an edge between two graph nodes. edge_type: resolves_to, hosts, serves, calls, uses_technology, etc.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def graph_add_edge(engagement_id: str, source_id: str, target_id: str, edge_type: str, properties: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -460,6 +448,7 @@ class OmegaServer:
             description="Query the asset graph for an engagement",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def graph_query(engagement_id: str, node_type: str = "", label_contains: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -474,6 +463,7 @@ class OmegaServer:
             description="Create a vulnerability hypothesis for hypothesis-driven testing",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def hypothesis_create(engagement_id: str, category: str, target: str, hypothesis: str, endpoint: str = "", observation: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -490,6 +480,7 @@ class OmegaServer:
             description="Update a hypothesis status or add evidence",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def hypothesis_update(hypothesis_id: str, status: str = "", result: str = "", confidence: str = "", next_test: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -504,7 +495,7 @@ class OmegaServer:
                 updates["next_test"] = next_test
             updated = await orch.findings.update_hypothesis(hypothesis_id, updates)
             if not updated:
-                return json.dumps({"error": "Hypothesis not found"})
+                raise ToolError(ErrorCode.NOT_FOUND, "Hypothesis not found")
             return json.dumps({"id": updated.id, "status": updated.validation_status, "hypothesis": updated.hypothesis})
 
         @mcp.tool(
@@ -512,6 +503,7 @@ class OmegaServer:
             description="Create a security finding (vulnerability report)",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def finding_create(
             engagement_id: str, title: str, severity: str = "informational",
             confidence: str = "none", affected_asset: str = "", affected_endpoint: str = "",
@@ -538,6 +530,7 @@ class OmegaServer:
             description="List findings for an engagement, optionally filtered by severity",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def finding_list(engagement_id: str, severity: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -549,13 +542,14 @@ class OmegaServer:
             description="Mark a finding as validated (confirmed vulnerability)",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def finding_validate(finding_id: str, evidence_ids: str = "") -> str:
             orch = server.orchestrator
             assert orch
             ids = json.loads(evidence_ids) if evidence_ids else None
             result = await orch.findings.validate_finding(finding_id, ids)
             if not result:
-                return json.dumps({"error": "Finding not found"})
+                raise ToolError(ErrorCode.NOT_FOUND, "Finding not found")
             return json.dumps({"id": result.id, "status": result.validation_status})
 
         @mcp.tool(
@@ -563,12 +557,13 @@ class OmegaServer:
             description="Reject a finding (false positive)",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def finding_reject(finding_id: str, reason: str = "") -> str:
             orch = server.orchestrator
             assert orch
             result = await orch.findings.reject_finding(finding_id, reason)
             if not result:
-                return json.dumps({"error": "Finding not found"})
+                raise ToolError(ErrorCode.NOT_FOUND, "Finding not found")
             return json.dumps({"id": result.id, "status": result.validation_status})
 
         @mcp.tool(
@@ -576,6 +571,7 @@ class OmegaServer:
             description="Get a summary of findings (counts by severity and status)",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def finding_summary(engagement_id: str) -> str:
             orch = server.orchestrator
             assert orch
@@ -589,6 +585,7 @@ class OmegaServer:
             description="List evidence records for an engagement, optionally filtered by type",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def evidence_list(engagement_id: str, evidence_type: str = "") -> str:
             orch = server.orchestrator
             assert orch
@@ -602,6 +599,7 @@ class OmegaServer:
             description="Create a CTF challenge workspace. Categories: web, crypto, pwn, rev, forensics, osint, misc, stego, mobile, blockchain",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def ctf_challenge_create(
             engagement_id: str, name: str, category: str, target: str = "",
             port: int = 0, protocol: str = "", description: str = "",
@@ -619,6 +617,7 @@ class OmegaServer:
             description="List all CTF challenges for an engagement",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def ctf_challenge_list(engagement_id: str) -> str:
             orch = server.orchestrator
             assert orch
@@ -631,6 +630,7 @@ class OmegaServer:
             description="Add a hypothesis to a CTF challenge (hypothesis-driven solving)",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def ctf_hypothesis(challenge_id: str, hypothesis: str, test_plan: str = "", category: str = "general") -> str:
             orch = server.orchestrator
             assert orch
@@ -643,6 +643,7 @@ class OmegaServer:
             description="Submit a candidate flag for a CTF challenge",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def ctf_submit_flag(challenge_id: str, flag: str) -> str:
             orch = server.orchestrator
             assert orch
@@ -655,6 +656,7 @@ class OmegaServer:
             description="Confirm a flag as correct for a CTF challenge",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def ctf_confirm_flag(challenge_id: str, flag: str) -> str:
             orch = server.orchestrator
             assert orch
@@ -667,13 +669,14 @@ class OmegaServer:
             description="Get the hypothesis ledger for a CTF challenge (shows active/succeeded/failed hypotheses)",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def ctf_ledger(challenge_id: str) -> str:
             orch = server.orchestrator
             assert orch
             ctf = CTFEngine(orch.db)
             challenge = await ctf.get_challenge(challenge_id)
             if not challenge:
-                return json.dumps({"error": "Challenge not found"})
+                raise ToolError(ErrorCode.NOT_FOUND, "Challenge not found")
             ledger = ctf.get_hypothesis_ledger(challenge)
             return json.dumps(ledger, default=str)
 
@@ -684,6 +687,7 @@ class OmegaServer:
             description="Generate a report for an engagement. format: 'markdown', 'html', 'json'",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
         )
+        @guarded_tool()
         async def report_generate(engagement_id: str, format: str = "markdown", title: str = "", include_evidence: bool = True) -> str:
             orch = server.orchestrator
             assert orch
@@ -699,6 +703,7 @@ class OmegaServer:
             description="Discover which security tools are installed and available on the system",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def tools_list() -> str:
             orch = server.orchestrator
             assert orch
@@ -734,6 +739,7 @@ class OmegaServer:
             description="Self-diagnostics: check installed tools, Python version, MCP SDK, dependencies",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
+        @guarded_tool()
         async def doctor() -> str:
             import shutil
             import platform
