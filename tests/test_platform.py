@@ -138,3 +138,109 @@ def test_broadcast_event_unknown_type():
     initial = len(_dashboard_state["findings"])
     broadcast_event("unknown_type", {"data": "value"})
     assert len(_dashboard_state["findings"]) == initial
+
+
+# ===== API Scope-Gating Tests (Phase 2 follow-up) =====
+
+
+import pytest as _pytest
+from unittest.mock import AsyncMock, patch as _patch
+
+
+def _make_engagement(client, name: str, mode: str = "pentest") -> str:
+    r = client.post("/api/engagements", json={"name": name, "target": "test.local", "mode": mode})
+    return r.json()["id"]
+
+
+def test_api_web_tech_denied_no_scope(client):
+    """Passive live-target endpoint denies when engagement has no scope rules."""
+    eid = _make_engagement(client, "gate-pentest-web-tech")
+    r = client.post("/api/web/tech", json={"url": "http://web.example.com", "engagement_id": eid})
+    assert r.status_code == 403
+    assert "scope" in r.json()["detail"].lower()
+
+
+def test_api_web_full_scan_denied_analysis_only(client):
+    """Active web/full-scan denied under analysis_only (observation-only)."""
+    eid = _make_engagement(client, "gate-analysis-fullscan", "analysis_only")
+    with _patch("omega.api.routes._get_web_engine") as get_web:
+        web_mock = AsyncMock()
+        web_mock.full_scan = AsyncMock(return_value={})
+        get_web.return_value = web_mock
+        r = client.post("/api/web/full-scan", json={"target": "http://scan.example.com", "engagement_id": eid})
+    assert r.status_code == 403
+    assert "scope" in r.json()["detail"].lower()
+
+
+def test_api_web_tech_allowed_analysis_only(client):
+    """Passive web/tech proceeds under analysis_only (observation-only)."""
+    eid = _make_engagement(client, "gate-analysis-web-tech", "analysis_only")
+    with _patch("omega.api.routes._get_web_engine") as get_web:
+        web_mock = AsyncMock()
+        web_mock.detect_technologies = AsyncMock(return_value={"tech": []})
+        get_web.return_value = web_mock
+        r = client.post("/api/web/tech", json={"url": "http://tech.example.com", "engagement_id": eid})
+    assert r.status_code == 200
+    web_mock.detect_technologies.assert_awaited_once()
+
+
+def test_api_http_request_denied_no_scope(client):
+    """GET via API http/request denies without scope rules."""
+    eid = _make_engagement(client, "gate-pentest-http")
+    r = client.post("/api/http/request", json={"method": "GET", "url": "http://api.example.com/x", "engagement_id": eid})
+    assert r.status_code == 403
+    assert "scope" in r.json()["detail"].lower()
+
+
+def test_api_http_request_ungated_without_engagement(client):
+    """http/request without engagement_id runs open-world (no gate)."""
+    with _patch("omega.api.routes._get_http_client") as get_http:
+        http_mock = AsyncMock()
+        http_mock.request = AsyncMock(return_value={"status_code": 200, "body": "", "body_length": 0})
+        get_http.return_value = http_mock
+        r = client.post("/api/http/request", json={"method": "GET", "url": "http://open.example.com/"})
+    assert r.status_code == 200
+    http_mock.request.assert_awaited_once()
+
+
+def test_api_auth_diff_test_denied_no_scope(client):
+    """auth/diff-test fires two requests; gate denies both for out-of-scope."""
+    eid = _make_engagement(client, "gate-pentest-diff")
+    r = client.post("/api/auth/diff-test", json={
+        "url_a": "http://a.example.com/profile",
+        "url_b": "http://b.example.com/profile",
+        "engagement_id": eid,
+    })
+    assert r.status_code == 403
+    assert "scope" in r.json()["detail"].lower()
+
+
+def test_api_auth_diff_test_ungated_without_engagement(client):
+    """auth/diff-test without engagement_id runs open-world."""
+    with _patch("omega.api.routes._get_http_client") as get_http:
+        http_mock = AsyncMock()
+        http_mock.request = AsyncMock(return_value={"status_code": 200, "body_length": 10})
+        get_http.return_value = http_mock
+        r = client.post("/api/auth/diff-test", json={
+            "url_a": "http://a.example.com/",
+            "url_b": "http://b.example.com/",
+        })
+    assert r.status_code == 200
+    assert r.json()["status_match"]
+
+
+def test_api_http_post_denied_active_risk(client):
+    """POST via http/request treated as active risk; denies for pentest with no rules."""
+    eid = _make_engagement(client, "gate-pentest-http-post")
+    r = client.post("/api/http/request", json={"method": "POST", "url": "http://api.example.com/data", "engagement_id": eid})
+    assert r.status_code == 403
+
+
+def test_api_idor_denied_no_scope(client):
+    """API security IDOR test is active; denies without scope rules."""
+    eid = _make_engagement(client, "gate-pentest-idor")
+    r = client.post("/api/api-security/idor", json={
+        "url_pattern": "http://api.example.com/users/{id}",
+        "id_values": ["1", "2"], "engagement_id": eid,
+    })
+    assert r.status_code == 403

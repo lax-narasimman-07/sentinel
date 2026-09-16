@@ -1,7 +1,7 @@
 # Session State — 2026-09-16 (save checkpoint)
 
 ## Current phase
-Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **COMPLETE** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓, 1.6 ✓). Phase 2 — guardrails: **IN PROGRESS** (audit ✓, fixes ✓, tests ✓; commit follows).
+Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **COMPLETE** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓, 1.6 ✓). Phase 2 — guardrails + follow-up: **COMPLETE**.
 
 ## Completed this session
 ### Phase 0 (diagnose/repair) — COMPLETE
@@ -45,14 +45,12 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - ✅ **Full suite: 323 passed** (278 + 15 phase14 + 16 phase15 + 14 phase16), same 1 warning. Ruff: no new violations.
 
 ## In progress (exact stopping point)
-- Phase 2 (guardrails) implementation complete: scope-gating audit done, multi-target bypass closed, `omega_scan` gated, authorization metadata added to findings/reports, 10 regression tests written. 333 green. This checkpoint commit pending.
-- Remaining Phase 2: audit `omega/web`/`api`/`http`/`pwn` modules for scope bypasses (light follow-up), document no-autonomous-exploitation / no-brute-force / no-DoS posture in README.
+- Phase 2 + follow-up COMPLETE and verified (342 green). This checkpoint pending commit.
 
 ## Next steps (ordered)
 1. **Commit this checkpoint** (`git -c user.name='lax' -c user.email='lax@localhost' commit -m "wip: checkpoint 2026-09-16"`).
-2. **Phase 2 follow-up**: audit `omega/web`, `omega/api`, `omega/http`, `omega/pwn` modules for live-target paths that bypass scope gating; document no-autonomous-exploitation / no brute-force / no-DoS posture (README).
-3. **Phase 3 feature modules**: recon/OSINT consolidation, vuln detection, reporting polish, CTF toolkit.
-4. **Phase 4 quality bar**: README external-binaries matrix, `health_check` MCP tool.
+2. **Phase 3 feature modules**: recon/OSINT consolidation, vuln detection, reporting polish, CTF toolkit, web/API engine hardening.
+3. **Phase 4 quality bar**: README external-binaries matrix, `health_check` MCP tool.
 
 ## Known issues / blockers
 - `tests/fixtures.py:167` `TestServer` has `__init__` → PytestCollectionWarning (non-fatal).
@@ -60,23 +58,27 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - Full suite takes ~2.6 min (real harness MCP subprocess + integration suite); bash default 120s timeout too short — use ≥300s.
 - Remaining ruff debt is pre-existing: `S101` asserts in tests, `S314` xml parse (`NmapAdapter`), `E501` long lines in recon normalize methods, `S108` `/tmp/omega-sandbox` default in `ExecutionConfig`.
 
-### Phase 2 (guardrails) — IN PROGRESS
+### Phase 2 (guardrails + follow-up) — COMPLETE
 - ✅ Scope-gating audit of all 41 MCP tools + agent paths: every handler gates via `_scope_denial`; `omega_scan` added handler-level gate (risk active unless scan_type=="recon").
 - ✅ Closed multi-target scope bypass: `omega_recon_probe` now authorizes EVERY newline-separated target; `ToolExecutor.execute` authorizes + rate-limits every entry in `parameters["targets"]` (covers agent `httpx` path). Fixed latent `.value` bug → `risk_str = str(cap.risk_level)`.
 - ✅ Analysis-only engagement + passive tool always allowed in `_scope_denial` (observation-only posture; preserves `test_orchestrator_scan_analysis_only`).
 - ✅ `Finding` schema + `findings` table gained `authorization_status` (authorized|not_in_scope|unverified), `authorization_basis`, `authorization_mode`, `authorization_id`; `FindingEngine(db, scope=None)` stamps them at creation by `authorize_target(affected_asset)`; SQLite ALTER migration added.
 - ✅ `ReportEngine` markdown shows "## Scope & Authorization" + per-finding Authorization/Basis lines; JSON gains `authorization_summary` counts.
-- ✅ NEW `tests/test_phase2_guardrails.py` (10 tests): MCP recon_probe multi-target deny, scan analysis_only/deny-by-default, executor multi-target deny/allow, finding authorized/not_in_scope/unverified stamping, report markdown/json authorization content.
-- ✅ **Full suite: 333 passed** (323 + 10 phase2), same 1 warning. Ruff: no new violations vs baseline.
+- ✅ Phase 2 follow-up: audited `omega/web`, `omega/api`, `omega/http`, `omega/pwn` modules. Found REST API layer exposed 15+ live-target handlers (`/web/*`, `/api-security/*`, `/http/request`, `/auth/diff-test`) with zero scope gating. Added `_gate()` helper mirroring MCP `_scope_denial` semantics; wired into all 15 live-target routes. Auth diff-test now reads `engagement_id` from body; active/passive risk correctly set per handler (active: `web_full_scan`, `idor`, `full_scan`, `auth_diff_test`, `http_request POST`; passive: all others).
+- ✅ README updated with "Security Authorization Model" section documenting: deny-by-default gating across MCP/executor/API layers, no-autonomous-exploitation, no credential brute-forcing, no DoS tooling, authorization metadata in findings/reports, JSONL audit trail.
+- ✅ NEW `tests/test_platform.py` added 9 API scope-gating tests: web tech denied (no scope rules), web full-scan denied (analysis_only active), web tech allowed (analysis_only passive), http_request GET denied (no rules), http_request ungated (no engagement), auth diff-test denied (no rules), auth diff-test ungated (no engagement), http_request POST denied (active risk), IDOR denied (active risk).
+- ✅ `tests/test_phase2_guardrails.py` (10 tests): MCP recon_probe multi-target deny, scan analysis_only/deny-by-default, executor multi-target deny/allow, finding authorized/not_in_scope/unverified stamping, report markdown/json authorization content.
+- ✅ **Full suite: 342 passed** (323 + 10 phase2 + 9 api-gate), same 1 warning. Ruff: no new violations vs baseline.
 
 ## Test status
-- Passing: full suite `333` (278 base/phase0 + 15 phase14 + 16 phase15 + 14 phase16 + 10 phase2).
+- Passing: full suite `342` (278 base/phase0 + 15 phase14 + 16 phase15 + 14 phase16 + 10 phase2 + 9 api-gate).
 - Failing: none.
 
 ## Notes/decisions made this session
 - Multi-target hardening lives at two layers: MCP handler (`recon_probe` per-target `_scope_denial`) AND `ToolExecutor.execute` (agent/sub-target path). Handler adapters call `adapter.execute` directly (bypass executor), so both layers needed.
 - `FindingEngine.scope` is optional (default None → findings remain `unverified`); passing scope enables attestation. This kept all existing `FindingEngine(db)` fixtures/behavior intact.
 - Phase 2 recap: `_scope_denial` short-circuits for `analysis_only`+`passive`; active scans denied by mode; no-rules engagements deny (except CTF/exclusion-only flows in `authorize_target`).
+- Phase 2 follow-up recap: REST API layer had zero scope enforcement on all live-target routes (`/web/*`, `/api-security/*`, `/http/request`, `/auth/diff-test`). Fixed by adding `_gate()` helper mirroring MCP semantics. Browser endpoints (`/browser/*`) left ungated — operator-interactive tool, not MCP surface, documented in posture. `omega/pwn` empty (no bypass risk). `HTTPClient` raw but all callers now gate before reaching it.
 - Caching is opt-in per tool (`cache_ttl_seconds`, default 0) so existing 278-test baseline is untouched; infrastructure is in place and proven by phase16 tests.
 - Cache lives at the subprocess boundary keyed on `(tool, cmd, input-hash)`, NOT on normalized outputs — uniform across all 14 adapters with zero adapter changes. Only rc=0 runs cached; synthetic duration 0 for hits.
 - Wall-clock (`time.time()`) timestamps for persisted TTLs (monotonic resets between processes would otherwise invalidate/wrongly-validate entries).
@@ -86,7 +88,7 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 
 ## Repo state
 - Branch: `master`
-- Last committed: (this checkpoint — Phase 1.5) — run `git log --oneline -3`
+- Last committed: (this checkpoint — Phase 2 + follow-up) — run `git log --oneline -3`
 - Changed/new this session:
-  - NEW: `omega/core/errors.py`, `tests/test_phase14_subprocess.py`, `omega/core/concurrency.py`, `tests/test_phase15_concurrency.py`
-  - CHANGED: `omega/mcp/__init__.py`, `omega/tools/__init__.py`, `omega/recon/__init__.py`, `omega/config/__init__.py`, `tests/test_phase0_regressions.py`, `.opencode/SESSION_STATE.md`
+  - NEW: `omega/core/errors.py`, `tests/test_phase14_subprocess.py`, `omega/core/concurrency.py`, `tests/test_phase15_concurrency.py`, `tests/test_phase2_guardrails.py`
+  - CHANGED: `omega/mcp/__init__.py`, `omega/tools/__init__.py`, `omega/recon/__init__.py`, `omega/config/__init__.py`, `tests/test_phase0_regressions.py`, `omega/core/schemas.py`, `omega/findings/__init__.py`, `omega/reporting/__init__.py`, `omega/storage/__init__.py`, `omega/agents/__init__.py`, `omega/api/routes.py`, `tests/test_platform.py`, `README.md`, `.opencode/SESSION_STATE.md`

@@ -90,6 +90,27 @@ async def _get_scope() -> ScopeEngine:
     return _scope
 
 
+async def _gate(engagement_id: str, target: str, action: str, risk_level: str = "passive") -> None:
+    """Authorize a live-target action, raising HTTP 403 when denied.
+
+    Mirrors the MCP ``_scope_denial`` posture: no engagement_id means the
+    action runs open-world (ungated); *analysis_only* engagements always allow
+    *passive* actions (observation-only); otherwise the full scope
+    authorization pipeline applies.
+    """
+    if not engagement_id or not target:
+        return
+    db = await _get_db()
+    eng = await db.get_engagement(engagement_id)
+    mode = eng.get("mode", "") if eng else ""
+    if mode == "analysis_only" and risk_level == "passive":
+        return
+    scope = await _get_scope()
+    result = await scope.authorize(engagement_id, target, action, risk_level)
+    if not result.allowed:
+        raise HTTPException(status_code=403, detail=f"Scope denied: {result.reason}")
+
+
 async def _get_graph() -> AssetGraph:
     global _graph
     if _graph is None:
@@ -644,6 +665,7 @@ async def web_headers(body: dict[str, Any]):
     web = await _get_web_engine()
     url = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_headers")
     return await web.analyze_headers(url, engagement_id)
 
 
@@ -652,6 +674,7 @@ async def web_cors(body: dict[str, Any]):
     web = await _get_web_engine()
     url = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_cors")
     return await web.analyze_cors(url, engagement_id)
 
 
@@ -660,6 +683,7 @@ async def web_cookies(body: dict[str, Any]):
     web = await _get_web_engine()
     url = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_cookies")
     return await web.analyze_cookies(url, engagement_id)
 
 
@@ -668,6 +692,7 @@ async def web_js(body: dict[str, Any]):
     web = await _get_web_engine()
     url = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_js")
     return await web.analyze_javascript(url, engagement_id)
 
 
@@ -676,6 +701,7 @@ async def web_jwt(body: dict[str, Any]):
     web = await _get_web_engine()
     url = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_jwt")
     return await web.analyze_jwt(url, engagement_id)
 
 
@@ -684,12 +710,14 @@ async def web_tech(body: dict[str, Any]):
     web = await _get_web_engine()
     url = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_tech")
     return await web.detect_technologies(url, engagement_id)
 
 
 @router.post("/web/full-scan")
 async def web_full_scan(req: RunWebScanRequest):
     web = await _get_web_engine()
+    await _gate(req.engagement_id, req.target, "web_full_scan", "active")
     return await web.full_scan(req.target, req.engagement_id)
 
 
@@ -699,6 +727,7 @@ async def web_endpoints(body: dict[str, Any]):
     url = body.get("url", "")
     body_text = body.get("body", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "web_endpoints")
     return await web.extract_endpoints(url, body_text, engagement_id)
 
 
@@ -711,6 +740,8 @@ async def web_endpoints(body: dict[str, Any]):
 async def api_security_openapi(body: dict[str, Any]):
     api = await _get_api_engine()
     base_url = body.get("url", "")
+    engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, base_url, "api_security_openapi")
     return await api.discover_openapi(base_url)
 
 
@@ -718,6 +749,8 @@ async def api_security_openapi(body: dict[str, Any]):
 async def api_security_graphql(body: dict[str, Any]):
     api = await _get_api_engine()
     base_url = body.get("url", "")
+    engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, base_url, "api_security_graphql")
     return await api.discover_graphql(base_url)
 
 
@@ -725,6 +758,8 @@ async def api_security_graphql(body: dict[str, Any]):
 async def api_security_auth(body: dict[str, Any]):
     api = await _get_api_engine()
     url = body.get("url", "")
+    engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url, "api_security_auth")
     return await api.analyze_authentication(url)
 
 
@@ -734,6 +769,7 @@ async def api_security_idor(body: dict[str, Any]):
     url_pattern = body.get("url_pattern", "")
     id_values = body.get("id_values")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, url_pattern, "api_security_idor", "active")
     return await api.test_idor(url_pattern, id_values, engagement_id)
 
 
@@ -1016,6 +1052,8 @@ async def list_reports(engagement_id: str):
 
 @router.post("/http/request")
 async def http_request(req: HttpRequestModel):
+    risk = "active" if req.method.upper() not in ("GET", "HEAD", "OPTIONS") else "passive"
+    await _gate(req.engagement_id, req.url, "http_request", risk)
     http = await _get_http_client()
     resp = await http.request(
         method=req.method,
@@ -1388,9 +1426,14 @@ async def authorization_differential_test(body: dict[str, Any]):
     headers_a = body.get("headers_a", {})
     headers_b = body.get("headers_b", {})
     method = body.get("method", "GET")
+    engagement_id = body.get("engagement_id", "")
 
     if not url_a or not url_b:
         raise HTTPException(status_code=400, detail="url_a and url_b required")
+
+    risk = "active" if method.upper() not in ("GET", "HEAD", "OPTIONS") else "passive"
+    await _gate(engagement_id, url_a, "auth_diff_test", risk)
+    await _gate(engagement_id, url_b, "auth_diff_test", risk)
 
     resp_a = await http.request(method=method, url=url_a, headers=headers_a or None)
     resp_b = await http.request(method=method, url=url_b, headers=headers_b or None)
@@ -1413,6 +1456,7 @@ async def api_security_full_scan(body: dict[str, Any]):
     api = await _get_api_engine()
     target = body.get("url", "")
     engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, target, "api_security_full_scan", "active")
     return await api.full_scan(target, engagement_id)
 
 
@@ -1420,6 +1464,8 @@ async def api_security_full_scan(body: dict[str, Any]):
 async def api_security_introspection(body: dict[str, Any]):
     api = await _get_api_engine()
     graphql_url = body.get("url", "")
+    engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, graphql_url, "api_security_introspection")
     return await api.analyze_graphql_introspection(graphql_url)
 
 
@@ -1427,4 +1473,6 @@ async def api_security_introspection(body: dict[str, Any]):
 async def api_security_endpoints(body: dict[str, Any]):
     api = await _get_api_engine()
     base_url = body.get("url", "")
+    engagement_id = body.get("engagement_id", "")
+    await _gate(engagement_id, base_url, "api_security_endpoints")
     return await api.infer_endpoints(base_url)

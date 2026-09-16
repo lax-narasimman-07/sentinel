@@ -18,6 +18,27 @@ Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
 - **Reporting** -- Markdown, HTML, and JSON report generation with findings and evidence
 - **30+ MCP Tools** -- Complete toolset exposed via MCP protocol
 
+## Security Authorization Model
+
+OMEGA enforces **deny-by-default scope gating** at every live-target (network-reaching) entry point. There are **no autonomous-exploitation workflows**: no tool, agent, or API route will send payloads, brute-force credentials, or launch load against a host that is not explicitly authorized by the engagement scope (§ in-scope rules, CTF/lab modes) and its execution mode.
+
+**Where scope is enforced:**
+
+| Surface | Enforcement point |
+|---|---|
+| MCP tools (`omega_*`) | Every handler calls `_scope_denial()` before touching a target; `analysis_only` engagements allow only *passive* tools without scope rules |
+| Tool executor (agents/`targets` lists) | `ToolExecutor.execute` authorizes **every** target in `parameters["targets"]`, not just the primary |
+| Orchestrated scans (`omega_scan`) | Handler-level `_scope_denial()` gate, active unless `scan_type="recon"` |
+| REST/UI REST API (`/api/*`) | `_gate()` on all web, API-security, HTTP, and auth differential-test routes |
+
+**Posture rules:**
+
+- **No autonomous exploitation** -- findings are *validated* (reproduced) or *hypothesized*, never auto-exploited. The orchestrator's `validate_finding` only issues benign read-style requests.
+- **No credential brute-forcing of live targets** -- no tool attempts login brute-force or password spraying against in-scope production targets.
+- **No DoS/stress tooling** -- nothing runs drainable floods; rate limits (per-target token buckets + a global worker pool) cap request volume.
+- **Authorization metadata** -- every finding is stamped with `authorization_status` (`authorized` / `not_in_scope` / `unverified`), the matched scope rule, engagement mode, and attestation id. Reports surface a "Scope & Authorization" section and per-finding authorization lines.
+- **Audit trail** -- every scope check, action, and denial is written to the JSONL audit log and the SQLite `authorizations` ledger.
+
 ## Quick Start
 
 ```bash
