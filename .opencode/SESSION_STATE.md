@@ -1,7 +1,7 @@
 # Session State — 2026-09-16 (save checkpoint)
 
 ## Current phase
-Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **COMPLETE** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓, 1.6 ✓). Phase 2 — guardrails: **next**.
+Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **COMPLETE** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓, 1.6 ✓). Phase 2 — guardrails: **IN PROGRESS** (audit ✓, fixes ✓, tests ✓; commit follows).
 
 ## Completed this session
 ### Phase 0 (diagnose/repair) — COMPLETE
@@ -45,11 +45,12 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - ✅ **Full suite: 323 passed** (278 + 15 phase14 + 16 phase15 + 14 phase16), same 1 warning. Ruff: no new violations.
 
 ## In progress (exact stopping point)
-- Phase 1 (hardening) COMPLETE and verified (323 green). Phase 1.4/1.5 committed (`4448bff`, `03b3259`); 1.6 pending commit.
+- Phase 2 (guardrails) implementation complete: scope-gating audit done, multi-target bypass closed, `omega_scan` gated, authorization metadata added to findings/reports, 10 regression tests written. 333 green. This checkpoint commit pending.
+- Remaining Phase 2: audit `omega/web`/`api`/`http`/`pwn` modules for scope bypasses (light follow-up), document no-autonomous-exploitation / no-brute-force / no-DoS posture in README.
 
 ## Next steps (ordered)
-1. **Commit checkpoint** for Phase 1.6 (`git -c user.name='lax' -c user.email='lax@localhost' commit -m "wip: checkpoint 2026-09-16"`).
-2. **Phase 2 guardrails**: audit active/destructive tools for scope gating (all MCP handlers already `_scope_denial`-gated); add authorization metadata to findings/reports (authorization basis, matched scope rule, mode, risk level, authorization id); document no-autonomous-exploitation / no brute-force / no-DoS posture; audit `omega/web`/`api`/`http`/`pwn` modules for scope bypasses.
+1. **Commit this checkpoint** (`git -c user.name='lax' -c user.email='lax@localhost' commit -m "wip: checkpoint 2026-09-16"`).
+2. **Phase 2 follow-up**: audit `omega/web`, `omega/api`, `omega/http`, `omega/pwn` modules for live-target paths that bypass scope gating; document no-autonomous-exploitation / no brute-force / no-DoS posture (README).
 3. **Phase 3 feature modules**: recon/OSINT consolidation, vuln detection, reporting polish, CTF toolkit.
 4. **Phase 4 quality bar**: README external-binaries matrix, `health_check` MCP tool.
 
@@ -59,11 +60,23 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - Full suite takes ~2.6 min (real harness MCP subprocess + integration suite); bash default 120s timeout too short — use ≥300s.
 - Remaining ruff debt is pre-existing: `S101` asserts in tests, `S314` xml parse (`NmapAdapter`), `E501` long lines in recon normalize methods, `S108` `/tmp/omega-sandbox` default in `ExecutionConfig`.
 
+### Phase 2 (guardrails) — IN PROGRESS
+- ✅ Scope-gating audit of all 41 MCP tools + agent paths: every handler gates via `_scope_denial`; `omega_scan` added handler-level gate (risk active unless scan_type=="recon").
+- ✅ Closed multi-target scope bypass: `omega_recon_probe` now authorizes EVERY newline-separated target; `ToolExecutor.execute` authorizes + rate-limits every entry in `parameters["targets"]` (covers agent `httpx` path). Fixed latent `.value` bug → `risk_str = str(cap.risk_level)`.
+- ✅ Analysis-only engagement + passive tool always allowed in `_scope_denial` (observation-only posture; preserves `test_orchestrator_scan_analysis_only`).
+- ✅ `Finding` schema + `findings` table gained `authorization_status` (authorized|not_in_scope|unverified), `authorization_basis`, `authorization_mode`, `authorization_id`; `FindingEngine(db, scope=None)` stamps them at creation by `authorize_target(affected_asset)`; SQLite ALTER migration added.
+- ✅ `ReportEngine` markdown shows "## Scope & Authorization" + per-finding Authorization/Basis lines; JSON gains `authorization_summary` counts.
+- ✅ NEW `tests/test_phase2_guardrails.py` (10 tests): MCP recon_probe multi-target deny, scan analysis_only/deny-by-default, executor multi-target deny/allow, finding authorized/not_in_scope/unverified stamping, report markdown/json authorization content.
+- ✅ **Full suite: 333 passed** (323 + 10 phase2), same 1 warning. Ruff: no new violations vs baseline.
+
 ## Test status
-- Passing: full suite `323` (278 base/phase0 + 15 phase14 + 16 phase15 + 14 phase16).
-- Failing: none. Not yet run: Phase 2 tests (to be written).
+- Passing: full suite `333` (278 base/phase0 + 15 phase14 + 16 phase15 + 14 phase16 + 10 phase2).
+- Failing: none.
 
 ## Notes/decisions made this session
+- Multi-target hardening lives at two layers: MCP handler (`recon_probe` per-target `_scope_denial`) AND `ToolExecutor.execute` (agent/sub-target path). Handler adapters call `adapter.execute` directly (bypass executor), so both layers needed.
+- `FindingEngine.scope` is optional (default None → findings remain `unverified`); passing scope enables attestation. This kept all existing `FindingEngine(db)` fixtures/behavior intact.
+- Phase 2 recap: `_scope_denial` short-circuits for `analysis_only`+`passive`; active scans denied by mode; no-rules engagements deny (except CTF/exclusion-only flows in `authorize_target`).
 - Caching is opt-in per tool (`cache_ttl_seconds`, default 0) so existing 278-test baseline is untouched; infrastructure is in place and proven by phase16 tests.
 - Cache lives at the subprocess boundary keyed on `(tool, cmd, input-hash)`, NOT on normalized outputs — uniform across all 14 adapters with zero adapter changes. Only rc=0 runs cached; synthetic duration 0 for hits.
 - Wall-clock (`time.time()`) timestamps for persisted TTLs (monotonic resets between processes would otherwise invalidate/wrongly-validate entries).

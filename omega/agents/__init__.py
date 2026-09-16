@@ -182,7 +182,7 @@ class Orchestrator:
         self.registry = ToolRegistry()
         self.executor = ToolExecutor(db, self.scope, self.registry)
         self.evidence = EvidenceEngine(db)
-        self.findings = FindingEngine(db)
+        self.findings = FindingEngine(db, self.scope)
         self.graph = AssetGraph(db)
         self.http = HTTPClient(db)
         self.web = WebSecurityEngine(db)

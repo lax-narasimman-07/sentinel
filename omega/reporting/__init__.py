@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from omega.core.schemas import Report, Finding, Evidence, new_id, now_utc
+from omega.core.schemas import Evidence, Finding, Report, new_id, now_utc
 from omega.storage import Database
 
 
@@ -44,15 +44,20 @@ class ReportEngine:
     def _gen_markdown(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]], title: str, include_timeline: bool) -> str:
         lines = [f"# {title}", ""]
         mode = engagement.get("mode", "unknown") if engagement else "unknown"
+        authorized = sum(1 for f in findings if f.get("authorization_status") == "authorized")
         lines.extend([
             "## Executive Summary",
             f"**Engagement Mode:** {mode}",
             f"**Total Findings:** {len(findings)}",
+            f"**Findings with Scope-Authorized Assets:** {authorized}/{len(findings)}",
             self._severity_summary(findings),
+            "",
+            "## Scope & Authorization",
+            "All tools were executed through a scope-validated execution pipeline with audit logging.",
+            "Findings are attested against the engagement scope rules at creation time.",
             "",
             "## Methodology",
             "Testing was conducted using an agentic security research platform with hypothesis-driven testing methodology.",
-            "All tools were executed through a scope-validated execution pipeline with audit logging.",
             "",
         ])
 
@@ -67,6 +72,8 @@ class ReportEngine:
                     f"- **Confidence:** {f.get('confidence', 'none')}",
                     f"- **Status:** {f.get('validation_status', 'candidate')}",
                     f"- **CWE:** {f.get('cwe_id', 'N/A')}",
+                    f"- **Authorization:** {f.get('authorization_status', 'unverified')}",
+                    f"- **Authorization Basis:** {f.get('authorization_basis', '') or 'N/A'}",
                     "",
                     f"**Description:** {f.get('description', 'N/A')}",
                     "",
@@ -114,8 +121,15 @@ table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ddd;padding
 
     def _gen_json(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> str:
         import json
+        auth_summary = {
+            "total": len(findings),
+            "authorized": sum(1 for f in findings if f.get("authorization_status") == "authorized"),
+            "not_in_scope": sum(1 for f in findings if f.get("authorization_status") == "not_in_scope"),
+            "unverified": sum(1 for f in findings if f.get("authorization_status", "unverified") == "unverified"),
+        }
         return json.dumps({
             "engagement": engagement,
+            "authorization_summary": auth_summary,
             "findings": findings,
             "evidence_count": len(evidence),
             "generated_at": now_utc().isoformat(),

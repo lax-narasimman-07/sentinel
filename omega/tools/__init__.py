@@ -352,12 +352,13 @@ class ToolExecutor:
 
         # Scope validation (skip for analysis-only tools)
         cap = adapter.capabilities()
+        risk_str = str(cap.risk_level) if cap.risk_level else ""
         if cap.risk_level in (ToolRiskLevel.ACTIVE, ToolRiskLevel.DESTRUCTIVE) and engagement_id:
             scope_result = await self.scope.authorize(
                 engagement_id,
                 request.target,
                 request.tool_name,
-                cap.risk_level.value,
+                risk_str,
             )
             if not scope_result.allowed:
                 await self._audit_denied(engagement_id, request, scope_result.reason)
@@ -369,6 +370,41 @@ class ToolExecutor:
                     created_at=now_utc(),
                     updated_at=now_utc(),
                 )
+
+        # Multi-target scope validation: every target in a `targets` parameter
+        # must be individually authorized (closes sub-target scope bypass).
+        if engagement_id and request.parameters:
+            extra_targets = request.parameters.get("targets")
+            if isinstance(extra_targets, (list, tuple, set)):
+                for t in dict.fromkeys(extra_targets):
+                    if not isinstance(t, str) or t == request.target:
+                        continue
+                    scope_result = await self.scope.authorize(
+                        engagement_id,
+                        t,
+                        request.tool_name,
+                        risk_str,
+                    )
+                    if not scope_result.allowed:
+                        await self._audit_denied(engagement_id, request, scope_result.reason)
+                        return ToolResult(
+                            id=new_id(),
+                            tool_name=request.tool_name,
+                            success=False,
+                            error=f"Scope authorization denied for target '{t}': {scope_result.reason}",
+                            created_at=now_utc(),
+                            updated_at=now_utc(),
+                        )
+                    rate_result = await self.scope.enforce_rate_limit(engagement_id, t)
+                    if not rate_result.allowed:
+                        return ToolResult(
+                            id=new_id(),
+                            tool_name=request.tool_name,
+                            success=False,
+                            error=f"Rate limit exceeded for target '{t}': {rate_result.reason}",
+                            created_at=now_utc(),
+                            updated_at=now_utc(),
+                        )
 
         # Rate limiting
         if engagement_id:

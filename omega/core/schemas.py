@@ -305,6 +305,12 @@ class Finding(OmegaBase):
     timeline: list[dict[str, Any]] = Field(default_factory=list)
     technical_details: dict[str, Any] = Field(default_factory=dict)
 
+    # ── Authorization attestation ────────────────────────────────────────
+    authorization_status: str = "unverified"   # authorized | not_in_scope | unverified
+    authorization_basis: str = ""               # matched scope-rule pattern
+    authorization_mode: str = ""                # engagement mode at creation time
+    authorization_id: str = ""                  # unique attestation id
+
 
 # ── Tool Adapter schemas ───────────────────────────────────────────────────
 

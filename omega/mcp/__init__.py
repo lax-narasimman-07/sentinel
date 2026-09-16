@@ -83,13 +83,20 @@ class OmegaServer:
         """Authorize `target` for `action`, raising :class:`ToolError` if denied.
 
         No engagement_id means the tool runs open-world (ungated), matching the
-        design of the recon adapters. When an engagement is provided the full
+        design of the recon adapters.  When an engagement is provided the full
         authorization pipeline applies: target scope, action, execution mode,
         and rate limiting.
+
+        *analysis_only* engagements always allow *passive* tools without
+        requiring explicit scope rules (observation-only posture).
         """
         orch = self.orchestrator
         assert orch
         if not engagement_id:
+            return
+        eng = await orch.db.get_engagement(engagement_id)
+        mode = eng.get("mode", "") if eng else ""
+        if mode == "analysis_only" and risk_level == "passive":
             return
         result = await orch.scope.authorize(engagement_id, target, action, risk_level)
         if not result.allowed:
@@ -214,9 +221,13 @@ class OmegaServer:
         )
         @guarded_tool()
         async def recon_probe(target: str, engagement_id: str = "", targets: str = "", timeout: int = 120) -> str:
-            await server._scope_denial(engagement_id, target, "httpx", "passive")
-            adapter = HttpxAdapter()
             target_list = targets.split("\n") if targets else [target]
+            await server._scope_denial(engagement_id, target, "httpx", "passive")
+            # Every requested target must be individually authorized.
+            for t in dict.fromkeys(target_list):
+                if isinstance(t, str) and t != target:
+                    await server._scope_denial(engagement_id, t, "httpx", "passive")
+            adapter = HttpxAdapter()
             request = ToolExecutionRequest(
                 tool_name="httpx", target=target,
                 parameters={"targets": target_list, "timeout": timeout}, engagement_id=engagement_id,
@@ -411,6 +422,9 @@ class OmegaServer:
             orch = server.orchestrator
             assert orch
             params = json.loads(parameters) if parameters else None
+            # Gate the primary target before any agents run.
+            risk = "active" if scan_type != "recon" else "passive"
+            await server._scope_denial(engagement_id, target, "omega_scan", risk)
             result = await orch.run_scan(engagement_id, target, scan_type, params)
             # Limit output to avoid context overflow
             return json.dumps(result, default=str)[:50000]

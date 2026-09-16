@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from omega.core.schemas import (
     Confidence,
@@ -17,12 +17,16 @@ from omega.core.schemas import (
 )
 from omega.storage import Database
 
+if TYPE_CHECKING:
+    from omega.scope import ScopeEngine
+
 
 class FindingEngine:
     """Manages the vulnerability finding lifecycle."""
 
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, scope: ScopeEngine | None = None) -> None:
         self.db = db
+        self.scope = scope
 
     # ── Hypotheses ─────────────────────────────────────────────────────────
 
@@ -57,6 +61,15 @@ class FindingEngine:
         if existing:
             finding.duplicate_group = existing.id
             finding.validation_status = ValidationStatus.DUPLICATE
+        # Authorization attestation: stamp which scope rule authorized the
+        # affected asset at creation time (when a scope engine is available).
+        if self.scope is not None and finding.engagement_id and finding.affected_asset:
+            eng = await self.db.get_engagement(finding.engagement_id)
+            result = await self.scope.authorize_target(finding.engagement_id, finding.affected_asset)
+            finding.authorization_status = "authorized" if result.allowed else "not_in_scope"
+            finding.authorization_basis = result.matched_rule
+            finding.authorization_mode = eng.get("mode", "") if eng else ""
+            finding.authorization_id = new_id()
         saved = await self.db.save_finding(finding.model_dump())
         return Finding(**saved)
 

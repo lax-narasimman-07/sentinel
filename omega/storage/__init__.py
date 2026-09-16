@@ -170,6 +170,10 @@ CREATE TABLE IF NOT EXISTS findings (
     tool_sources TEXT DEFAULT '[]',
     timeline TEXT DEFAULT '[]',
     technical_details TEXT DEFAULT '{}',
+    authorization_status TEXT DEFAULT 'unverified',
+    authorization_basis TEXT DEFAULT '',
+    authorization_mode TEXT DEFAULT '',
+    authorization_id TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (engagement_id) REFERENCES engagements(id)
@@ -344,6 +348,7 @@ class Database:
         await self._db.commit()
 
     async def _migrate(self) -> None:
+        # CTF challenges additions
         cursor = await self._db.execute("PRAGMA table_info(ctf_challenges)")
         cols = {row[1] for row in await cursor.fetchall()}
         if "hypotheses" not in cols:
@@ -352,6 +357,17 @@ class Database:
             await self._db.execute("ALTER TABLE ctf_challenges ADD COLUMN failed_attempts TEXT DEFAULT '[]'")
         if "timeline" not in cols:
             await self._db.execute("ALTER TABLE ctf_challenges ADD COLUMN timeline TEXT DEFAULT '[]'")
+        # Phase 2: authorization attestation on findings
+        cursor = await self._db.execute("PRAGMA table_info(findings)")
+        fcols = {row[1] for row in await cursor.fetchall()}
+        for col, default in [
+            ("authorization_status", "unverified"),
+            ("authorization_basis", ""),
+            ("authorization_mode", ""),
+            ("authorization_id", ""),
+        ]:
+            if col not in fcols:
+                await self._db.execute(f"ALTER TABLE findings ADD COLUMN {col} TEXT DEFAULT '{default}'")
 
     async def close(self) -> None:
         if self._db:
