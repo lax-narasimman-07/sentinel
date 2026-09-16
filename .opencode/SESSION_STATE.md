@@ -1,7 +1,7 @@
 # Session State — 2026-09-16 (save checkpoint)
 
 ## Current phase
-Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **in progress** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓; 1.6 next).
+Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **COMPLETE** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓, 1.6 ✓). Phase 2 — guardrails: **next**.
 
 ## Completed this session
 ### Phase 0 (diagnose/repair) — COMPLETE
@@ -34,32 +34,41 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - ✅ NEW `tests/test_phase15_concurrency.py` (16 tests): bucket burst/block/refill/zero-rps/wait, pool concurrency bound, shared singletons + config sizing, adapter throttled (depleted bucket → rc -1 RATE_LIMITED stderr), adapter proceeds with tokens, `_run_failure` RATE_LIMITED mapping, disabled config bypasses throttling.
 - ✅ **Full suite: 309 passed** (293 + 16 new), same 1 warning. Ruff: no new violations vs baseline (S101/S314/E501 pre-existing).
 
+### Phase 1.6 (recon output caching) — COMPLETE
+- ✅ NEW `omega/core/cache.py`:
+  - `ReconCache` — SQLite (`recon_cache.db` under `base_dir`) read-through cache, one table `recon_cache(key PK, tool, cmd, input_hash, stdout, stderr, rc, stored_at)`; short-lived per-op connections (event-loop-safe for MCP stdio + pytest); `asyncio.Lock` serializes ops; wall-clock `time.time()` timestamps so entries survive process restarts.
+  - `cache_key(tool, cmd, input_data)` — content-addressed SHA-256 over `{tool, cmd, input-hash}`; `ttl_for(tool)` reads `ToolConfig.cache_ttl_seconds`; `set_cache_path()`/`get_cache_path()`.
+  - `cache_get`/`cache_put` module helpers — failures (rc≠0) never stored; all cache errors swallowed (fail-open to a real run).
+- ✅ `ToolConfig.cache_ttl_seconds: float = 0` (opt-in; 0 = off) added to config.
+- ✅ Base runners (`_run_subprocess`/`_run_subprocess_with_input`): when TTL>0, check cache before rate-limit/wait, and `cache_put` successful runs after `_spawn`. Input-sensitive keying for stdin-fed tools (sqlmap/JtR).
+- ✅ NEW `tests/test_phase16_cache.py` (14 tests): key determinism + input sensitivity, TTL resolution (default/per-tool), put/get roundtrip, staleness, failing runs not stored, zero-TTL no read, clear-by-tool/total, adapter integration (2nd identical call spawns once; failures re-spawn; disabled default re-spawns; expired TTL re-spawns; different stdin → distinct entries).
+- ✅ **Full suite: 323 passed** (278 + 15 phase14 + 16 phase15 + 14 phase16), same 1 warning. Ruff: no new violations.
+
 ## In progress (exact stopping point)
-- Phase 1.5 done and verified (309 green, ruff baseline-clean). Committed as `wip: checkpoint 2026-09-16` (`4448bff` had 1.3/1.4; this commit adds 1.5).
+- Phase 1 (hardening) COMPLETE and verified (323 green). Phase 1.4/1.5 committed (`4448bff`, `03b3259`); 1.6 pending commit.
 
 ## Next steps (ordered)
-1. **Phase 1.6 Caching**: cache recon outputs in SQLite keyed by target+tool+params+timestamp; staleness window from config; `omit_cache`/`force` param; skip cache when `RateLimitPolicy`/mode demands fresh data; wire via a small cache layer used by adapters or the ToolExecutor.
-2. **Phase 2 guardrails**: audit active tools for scope gating; authorization metadata (authorization basis, rules matched, risk level) on findings/reports; no autonomous exploitation / brute-force / DoS tooling.
-3. **Phase 3 feature modules** + **Phase 4 quality bar** (README external-binaries matrix, `health_check` tool).
+1. **Commit checkpoint** for Phase 1.6 (`git -c user.name='lax' -c user.email='lax@localhost' commit -m "wip: checkpoint 2026-09-16"`).
+2. **Phase 2 guardrails**: audit active/destructive tools for scope gating (all MCP handlers already `_scope_denial`-gated); add authorization metadata to findings/reports (authorization basis, matched scope rule, mode, risk level, authorization id); document no-autonomous-exploitation / no brute-force / no-DoS posture; audit `omega/web`/`api`/`http`/`pwn` modules for scope bypasses.
+3. **Phase 3 feature modules**: recon/OSINT consolidation, vuln detection, reporting polish, CTF toolkit.
+4. **Phase 4 quality bar**: README external-binaries matrix, `health_check` MCP tool.
 
 ## Known issues / blockers
 - `tests/fixtures.py:167` `TestServer` has `__init__` → PytestCollectionWarning (non-fatal).
 - `test_core.py::TestScope::test_rate_limiting` is a no-op assertion (covered by phase0 regressions).
-- Full suite takes ~2.7 min (real harness MCP subprocess + integration suite); bash default 120s timeout too short — use ≥300s.
+- Full suite takes ~2.6 min (real harness MCP subprocess + integration suite); bash default 120s timeout too short — use ≥300s.
 - Remaining ruff debt is pre-existing: `S101` asserts in tests, `S314` xml parse (`NmapAdapter`), `E501` long lines in recon normalize methods, `S108` `/tmp/omega-sandbox` default in `ExecutionConfig`.
 
 ## Test status
-- Passing: full suite `309` (278 base/phase0 + 15 phase14 + 16 phase15). 
-- Failing: none. Not yet run: Phase 1.6 tests (to be written).
+- Passing: full suite `323` (278 base/phase0 + 15 phase14 + 16 phase15 + 14 phase16).
+- Failing: none. Not yet run: Phase 2 tests (to be written).
 
 ## Notes/decisions made this session
-- Rate limiting design: token bucket lives at the adapter subprocess boundary (per-tool), NOT in MCP handlers, so direct adapter.execute() calls in Unit tests and the MCP path are throttled consistently. Per-target limits remain in `ScopeEngine.enforce_rate_limit` (per-engagement token bucket keyed per target; values hardcoded per policy: STEALTH 1rps/burst3, NORMAL 5/10, AGGRESSIVE 20/50).
-- Global pool bounds only actual `_run_subprocess*` spawns (the real FD/process bottleneck). `WorkerPool` and per-tool buckets are lazily created from `get_config()` → no config/tools/recon import cycle.
-- Nesting the SAME `WorkerPool` semaphore (executor-level wrap + subprocess-level wrap) deadlocks at `max_concurrent=1` — avoided by exposing `ToolExecutor.pool` instead of wrapping.
-- AsyncTokenBucket has no await between refill and decrement → benign in the single-threaded event loop; waits happen only in `asyncio.sleep`/refill phases.
-- Error format: `{"error": {"code", "message", "retryable"}}` — backward compatible with harness assertions.
-- `@guarded_tool` `functools.wraps` preserves MCP SDK `inspect.signature` → schema extraction (verified via 41-tool harness). `omega_audit_log` not decorated (audit-recursion guard).
-- Git identity is NOT configured: commit with `git -c user.name='lax' -c user.email='lax@localhost' commit …` (matches prior commits; no persistent config change).
+- Caching is opt-in per tool (`cache_ttl_seconds`, default 0) so existing 278-test baseline is untouched; infrastructure is in place and proven by phase16 tests.
+- Cache lives at the subprocess boundary keyed on `(tool, cmd, input-hash)`, NOT on normalized outputs — uniform across all 14 adapters with zero adapter changes. Only rc=0 runs cached; synthetic duration 0 for hits.
+- Wall-clock (`time.time()`) timestamps for persisted TTLs (monotonic resets between processes would otherwise invalidate/wrongly-validate entries).
+- Phase 1.5 recap: pool + per-tool token bucket in `_run_subprocess*`; `AsyncTokenBucket.acquire(timeout)`; `WorkerPool`; `ToolExecutor.pool` exposed (no nesting to avoid `max_concurrent=1` deadlock); `RateLimitConfig` gained `enabled`, `wait_seconds` (+envs `OMEGA_RATE_LIMIT`, `OMEGA_TOOL_RPS`, `OMEGA_MAX_CONCURRENT`, `OMEGA_BURST`, `OMEGA_RATE_WAIT`).
+- Git identity NOT configured globally: always commit with `-c user.name/-c user.email = lax/lax@localhost`.
 - Next session: "continue"/"resume" → read this file, 2–3 line recap, proceed to Next steps without asking. "stop"/"pause" → update this file + commit checkpoint.
 
 ## Repo state

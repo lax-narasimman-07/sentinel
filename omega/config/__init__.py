@@ -16,6 +16,7 @@ class ToolConfig(BaseModel):
     enabled: bool = True
     timeout_seconds: float = 300
     max_output_bytes: int = 2_000_000
+    cache_ttl_seconds: float = 0
     custom_args: list[str] = Field(default_factory=list)
 
 

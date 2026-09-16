@@ -194,13 +194,23 @@ class ToolAdapter(ABC):
         missing = self._binary_missing_run(cmd)
         if missing is not None:
             return missing
+        from omega.core.cache import cache_get, cache_key, cache_put, ttl_for
+        ttl = ttl_for(self.name())
+        if ttl > 0:
+            cached = await cache_get(cache_key(self.name(), cmd), ttl)
+            if cached is not None:
+                return cached
         limited = await self._rate_limit_acquire()
         if limited is not None:
             return limited
         if get_config().rate_limits.enabled:
             async with get_worker_pool().run():
-                return await self._spawn(cmd, None, timeout, max_output_bytes, env)
-        return await self._spawn(cmd, None, timeout, max_output_bytes, env)
+                run = await self._spawn(cmd, None, timeout, max_output_bytes, env)
+        else:
+            run = await self._spawn(cmd, None, timeout, max_output_bytes, env)
+        if ttl > 0:
+            await cache_put(cmd, self.name(), run[0], run[1], run[2])
+        return run
 
     async def _run_subprocess_with_input(
         self,
@@ -219,13 +229,23 @@ class ToolAdapter(ABC):
         missing = self._binary_missing_run(cmd)
         if missing is not None:
             return missing
+        from omega.core.cache import cache_get, cache_key, cache_put, ttl_for
+        ttl = ttl_for(self.name())
+        if ttl > 0:
+            cached = await cache_get(cache_key(self.name(), cmd, input_data), ttl)
+            if cached is not None:
+                return cached
         limited = await self._rate_limit_acquire()
         if limited is not None:
             return limited
         if get_config().rate_limits.enabled:
             async with get_worker_pool().run():
-                return await self._spawn(cmd, input_data, timeout, max_output_bytes, env)
-        return await self._spawn(cmd, input_data, timeout, max_output_bytes, env)
+                run = await self._spawn(cmd, input_data, timeout, max_output_bytes, env)
+        else:
+            run = await self._spawn(cmd, input_data, timeout, max_output_bytes, env)
+        if ttl > 0:
+            await cache_put(cmd, self.name(), run[0], run[1], run[2], input_data)
+        return run
 
     async def _spawn(
         self,
