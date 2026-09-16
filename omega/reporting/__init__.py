@@ -19,16 +19,17 @@ class ReportEngine:
         findings = await self.db.get_findings(engagement_id)
         evidence_rows = await self.db.get_evidence(engagement_id) if include_evidence else []
         engagement = await self.db.get_engagement(engagement_id)
+        hypotheses = await self.db.get_hypotheses(engagement_id)
 
         if not title:
             title = f"Security Assessment Report — {engagement.get('name', 'Unknown') if engagement else 'Unknown'}"
 
         if fmt == "json":
-            content = self._gen_json(engagement, findings, evidence_rows)
+            content = self._gen_json(engagement, findings, evidence_rows, hypotheses)
         elif fmt == "html":
-            content = self._gen_html(engagement, findings, evidence_rows, title)
+            content = self._gen_html(engagement, findings, evidence_rows, hypotheses, title)
         else:
-            content = self._gen_markdown(engagement, findings, evidence_rows, title, include_timeline)
+            content = self._gen_markdown(engagement, findings, evidence_rows, hypotheses, title, include_timeline)
 
         report = Report(
             id=new_id(), engagement_id=engagement_id, title=title,
@@ -41,7 +42,7 @@ class ReportEngine:
         saved["content"] = content
         return Report(**saved)
 
-    def _gen_markdown(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]], title: str, include_timeline: bool) -> str:
+    def _gen_markdown(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]], hypotheses: list[dict[str, Any]], title: str, include_timeline: bool) -> str:
         lines = [f"# {title}", ""]
         mode = engagement.get("mode", "unknown") if engagement else "unknown"
         authorized = sum(1 for f in findings if f.get("authorization_status") == "authorized")
@@ -100,6 +101,24 @@ class ReportEngine:
             for t, c in sorted(type_counts.items()):
                 lines.append(f"- {t}: {c}")
 
+        if hypotheses:
+            active = [h for h in hypotheses if h.get("status") == "active"]
+            succeeded = [h for h in hypotheses if h.get("status") == "success"]
+            failed = [h for h in hypotheses if h.get("status") == "failed"]
+            resolved = len(succeeded) + len(failed)
+            rate = f"{round(100 * len(succeeded) / resolved, 1)}%" if resolved else "N/A"
+            lines.extend([
+                "## Hypotheses",
+                f"**Total:** {len(hypotheses)} | **Active:** {len(active)} | **Resolved:** {resolved} | **Success rate:** {rate}",
+                "",
+            ])
+            for h in succeeded:
+                lines.append(f"- [SUCCESS] {h.get('hypothesis', '')[:120]}")
+            for h in failed:
+                lines.append(f"- [FAILED] {h.get('hypothesis', '')[:120]} — {h.get('result', '')[:100]}")
+            for h in active[:10]:
+                lines.append(f"- [ACTIVE] {h.get('hypothesis', '')[:120]}")
+
         lines.extend(["## Testing Timeline", f"Report generated: {datetime.now(timezone.utc).isoformat()}", ""])
         return "\n".join(lines)
 
@@ -111,15 +130,15 @@ class ReportEngine:
         parts = [f"**{s.upper()}:** {c}" for s, c in sorted(counts.items(), key=lambda x: {"critical": 0, "high": 1, "medium": 2, "low": 3, "informational": 4}.get(x[0], 5))]
         return " | ".join(parts) if parts else "No findings"
 
-    def _gen_html(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]], title: str) -> str:
-        md = self._gen_markdown(engagement, findings, evidence, title, True)
+    def _gen_html(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]], hypotheses: list[dict[str, Any]], title: str) -> str:
+        md = self._gen_markdown(engagement, findings, evidence, hypotheses, title, True)
         return f"""<!DOCTYPE html><html><head><title>{title}</title>
 <style>body{{font-family:sans-serif;max-width:900px;margin:0 auto;padding:20px}}
 h1{{border-bottom:2px solid #333}}h2{{color:#1a5276}}
 table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ddd;padding:8px}}</style></head>
 <body><pre style="white-space:pre-wrap">{md}</pre></body></html>"""
 
-    def _gen_json(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]]) -> str:
+    def _gen_json(self, engagement: dict[str, Any] | None, findings: list[dict[str, Any]], evidence: list[dict[str, Any]], hypotheses: list[dict[str, Any]]) -> str:
         import json
         auth_summary = {
             "total": len(findings),
@@ -131,6 +150,7 @@ table{{border-collapse:collapse;width:100%}}td,th{{border:1px solid #ddd;padding
             "engagement": engagement,
             "authorization_summary": auth_summary,
             "findings": findings,
+            "hypotheses": hypotheses,
             "evidence_count": len(evidence),
             "generated_at": now_utc().isoformat(),
         }, indent=2, default=str)

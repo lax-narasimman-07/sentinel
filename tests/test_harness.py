@@ -33,7 +33,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENV_PYTHON = os.path.join(PROJECT_ROOT, ".venv", "bin", "python")
 TIMEOUT = 30
 SCAN_TIMEOUT = 90
-TOTAL_HARNESS_TIMEOUT = 300  # overall ceiling for the full 41-tool sweep
+TOTAL_HARNESS_TIMEOUT = 420  # overall ceiling for the full ~60-tool sweep
 
 # Fast-failing targets keep the harness offline-safe and quick.
 STEALTH = "http://127.0.0.1:1"
@@ -68,6 +68,24 @@ HARNESS_CASES: list[tuple[str, dict, int]] = [
     ("omega_web_endpoints", {"url": STEALTH}, TIMEOUT),
     ("omega_web_full_scan", {"target": STEALTH}, SCAN_TIMEOUT),
     ("omega_web_js_analyze", {"js_url": STEALTH + "/app.js"}, TIMEOUT),
+    ("omega_web_jwt", {"url": STEALTH}, TIMEOUT),
+    ("omega_web_tech", {"url": STEALTH}, TIMEOUT),
+    # API security
+    ("omega_api_openapi", {"base_url": STEALTH}, TIMEOUT),
+    ("omega_api_graphql", {"base_url": STEALTH}, TIMEOUT),
+    ("omega_api_auth", {"url": STEALTH}, TIMEOUT),
+    ("omega_api_idor", {"url_pattern": STEALTH + "/users/{id}", "id_values": "1,2"}, TIMEOUT),
+    ("omega_api_introspection", {"graphql_url": STEALTH + "/graphql"}, TIMEOUT),
+    ("omega_api_full_scan", {"target": STEALTH}, SCAN_TIMEOUT),
+    # Extended recon adapters
+    ("omega_recon_vuln_scan", {"target": STEALTH, "timeout": 20}, SCAN_TIMEOUT),
+    ("omega_recon_server_audit", {"target": STEALTH, "timeout": 20}, SCAN_TIMEOUT),
+    ("omega_recon_dirbrute", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt", "timeout": 20}, TIMEOUT),
+    ("omega_recon_webcrawl", {"target": STEALTH, "timeout": 20}, TIMEOUT),
+    ("omega_recon_port_rapid", {"target": "127.0.0.1", "ports": "22", "timeout": 20}, TIMEOUT),
+    ("omega_recon_fastportscan", {"target": "127.0.0.1", "timeout": 20}, TIMEOUT),
+    ("omega_recon_dns_lookup", {"target": STEALTH_DOMAIN, "timeout": 20}, TIMEOUT),
+    ("omega_recon_waf_detect", {"target": STEALTH, "timeout": 20}, TIMEOUT),
     # HTTP client
     ("omega_http_request", {"method": "GET", "url": STEALTH}, TIMEOUT),
     # Orchestrated scan
@@ -88,6 +106,15 @@ HARNESS_CASES: list[tuple[str, dict, int]] = [
     # CTF
     ("omega_ctf_challenge_create", {"engagement_id": "EID", "name": "Harness C", "category": "crypto"}, TIMEOUT),
     ("omega_ctf_challenge_list", {"engagement_id": "EID"}, TIMEOUT),
+    ("omega_ctf_hypothesis", {"challenge_id": "missing", "hypothesis": "probe"}, TIMEOUT),
+    ("omega_ctf_resolve_hypothesis",
+     {"challenge_id": "a", "hypothesis_id": "b", "result": "c", "successful": False}, TIMEOUT),
+    ("omega_ctf_add_note", {"challenge_id": "missing", "note": "harness note"}, TIMEOUT),
+    ("omega_ctf_add_artifact", {"challenge_id": "missing", "artifact": "artifact"}, TIMEOUT),
+    ("omega_ctf_hypothesis_ledger", {"challenge_id": "missing"}, TIMEOUT),
+    ("omega_ctf_submit_flag", {"challenge_id": "missing", "flag": "FLAG{}"}, TIMEOUT),
+    ("omega_ctf_confirm_flag", {"challenge_id": "missing", "flag": "FLAG{}"}, TIMEOUT),
+    ("omega_ctf_ledger", {"challenge_id": "missing"}, TIMEOUT),
     # Reporting
     ("omega_report_generate", {"engagement_id": "EID", "format": "json"}, TIMEOUT),
 ]

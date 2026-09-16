@@ -29,6 +29,8 @@ from omega.recon import (
     register_all_recon_adapters,
     SubfinderAdapter, HttpxAdapter, NmapAdapter, FfufAdapter,
     WhatWebAdapter, GobusterAdapter, KatanaAdapter,
+    NucleiAdapter, NiktoAdapter, GospiderAdapter, MasscanAdapter,
+    NaabuAdapter, DnsxAdapter, WafW00fAdapter,
 )
 from omega.core.schemas import (
     Engagement, EngagementMode, Finding, Hypothesis, Severity, Confidence,
@@ -101,6 +103,50 @@ class OmegaServer:
         result = await orch.scope.authorize(engagement_id, target, action, risk_level)
         if not result.allowed:
             raise ToolError(ErrorCode.SCOPE_DENIED, f"Scope denied: {result.reason}")
+
+    async def _run_recon(
+        self,
+        adapter: Any,
+        tool_name: str,
+        target: str,
+        engagement_id: str,
+        risk: str,
+        parameters: dict[str, Any] | None = None,
+    ) -> str:
+        """Run a recon adapter with scope gating, evidence capture, and asset ingestion."""
+        orch = self.orchestrator
+        assert orch
+        await self._scope_denial(engagement_id, target, tool_name, risk)
+        request = ToolExecutionRequest(
+            tool_name=tool_name, target=target, engagement_id=engagement_id,
+            parameters=parameters or {},
+        )
+        result = await adapter.execute(request)
+        if engagement_id and result.success:
+            await orch.evidence.store_tool_output(
+                engagement_id, tool_name, adapter.version(), target,
+                result.parsed_output, result.raw_output,
+            )
+            for asset in result.normalized_output.get("assets", []):
+                try:
+                    await orch.db.save_asset({
+                        "id": new_id(), "engagement_id": engagement_id,
+                        "asset_type": asset.get("type", "unknown"),
+                        "value": asset.get("value", ""),
+                        "metadata": json.dumps(asset.get("metadata", {})),
+                        "tags": "[]",
+                        "created_at": now_utc().isoformat(),
+                        "updated_at": now_utc().isoformat(),
+                    })
+                except Exception:  # noqa: BLE001 - asset ingestion is best-effort
+                    logger.warning("Could not save %s asset for %s", asset.get("type"), tool_name)
+        return json.dumps({
+            "success": result.success,
+            "result": result.parsed_output,
+            "assets": result.normalized_output.get("assets", []),
+            "error": result.error,
+            "duration_ms": result.duration_ms,
+        }, default=str)
 
     def _register_tools(self) -> None:
         mcp = self.mcp
@@ -297,6 +343,97 @@ class OmegaServer:
             result = await adapter.execute(request)
             return json.dumps({"success": result.success, "urls": result.parsed_output.get("urls", [])[:200], "count": len(result.parsed_output.get("urls", [])), "error": result.error}, default=str)
 
+        @mcp.tool(
+            name="omega_recon_vuln_scan",
+            description="Run nuclei vulnerability scan against a target (active)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_vuln_scan(target: str, engagement_id: str = "", timeout: int = 120, templates: str = "") -> str:
+            return await server._run_recon(
+                NucleiAdapter(), "nuclei", target, engagement_id, "active",
+                {"timeout": timeout, "templates": [t for t in templates.split(",") if t.strip()] if templates else []},
+            )
+
+        @mcp.tool(
+            name="omega_recon_server_audit",
+            description="Run nikto web server vulnerability audit against a target (active)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_server_audit(target: str, engagement_id: str = "", timeout: int = 120) -> str:
+            return await server._run_recon(
+                NiktoAdapter(), "nikto", target, engagement_id, "active", {"timeout": timeout},
+            )
+
+        @mcp.tool(
+            name="omega_recon_dirbrute",
+            description="Enumerate directories and files with gobuster (active)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_dirbrute(target: str, wordlist: str = "", engagement_id: str = "", timeout: int = 60) -> str:
+            return await server._run_recon(
+                GobusterAdapter(), "gobuster", target, engagement_id, "active",
+                {"wordlist": wordlist, "timeout": timeout},
+            )
+
+        @mcp.tool(
+            name="omega_recon_webcrawl",
+            description="Crawl and collect URLs/javascript with gospider (passive)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_webcrawl(target: str, engagement_id: str = "", timeout: int = 60) -> str:
+            return await server._run_recon(
+                GospiderAdapter(), "gospider", target, engagement_id, "passive", {"timeout": timeout},
+            )
+
+        @mcp.tool(
+            name="omega_recon_port_rapid",
+            description="Rapid full-range port discovery with masscan (active)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_port_rapid(target: str, engagement_id: str = "", timeout: int = 60, ports: str = "1-1000") -> str:
+            return await server._run_recon(
+                MasscanAdapter(), "masscan", target, engagement_id, "active",
+                {"timeout": timeout, "ports": ports},
+            )
+
+        @mcp.tool(
+            name="omega_recon_fastportscan",
+            description="Fast TCP port scan with naabu (active; requires naabu binary)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_fastportscan(target: str, engagement_id: str = "", timeout: int = 60) -> str:
+            return await server._run_recon(
+                NaabuAdapter(), "naabu", target, engagement_id, "active", {"timeout": timeout},
+            )
+
+        @mcp.tool(
+            name="omega_recon_dns_lookup",
+            description="Resolve DNS records with dnsx (passive; requires dnsx binary)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_dns_lookup(target: str, engagement_id: str = "", timeout: int = 30) -> str:
+            return await server._run_recon(
+                DnsxAdapter(), "dnsx", target, engagement_id, "passive", {"timeout": timeout},
+            )
+
+        @mcp.tool(
+            name="omega_recon_waf_detect",
+            description="Identify WAF protection with wafw00f (passive; requires wafw00f binary)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def recon_waf_detect(target: str, engagement_id: str = "", timeout: int = 30) -> str:
+            return await server._run_recon(
+                WafW00fAdapter(), "wafw00f", target, engagement_id, "passive", {"timeout": timeout},
+            )
+
         # ── Web Security ───────────────────────────────────────────────────
 
         @mcp.tool(
@@ -376,6 +513,113 @@ class OmegaServer:
             assert orch
             await server._scope_denial(engagement_id, js_url, "web_js_analyze")
             result = await orch.web.analyze_javascript(js_url, engagement_id)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_web_jwt",
+            description="Analyze JWT tokens found in cookies, headers, or page body for security issues",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def web_jwt(url: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, url, "web_jwt")
+            result = await orch.web.analyze_jwt(url, engagement_id)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_web_tech",
+            description="Detect technologies/frameworks used by a web application",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def web_tech(url: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, url, "web_tech")
+            result = await orch.web.detect_technologies(url, engagement_id)
+            return json.dumps(result, default=str)
+
+        # ── API Security ──────────────────────────────────────────────────
+
+        @mcp.tool(
+            name="omega_api_openapi",
+            description="Discover an OpenAPI/Swagger specification at common paths",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def api_openapi(base_url: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, base_url, "api_openapi")
+            result = await orch.api.discover_openapi(base_url)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_api_graphql",
+            description="Probe for a GraphQL endpoint at common paths",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def api_graphql(base_url: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, base_url, "api_graphql")
+            result = await orch.api.discover_graphql(base_url)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_api_auth",
+            description="Analyze API authentication mechanisms (schemes, cookie/header patterns)",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def api_auth(url: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, url, "api_auth")
+            result = await orch.api.analyze_authentication(url)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_api_idor",
+            description="Test for Insecure Direct Object References by substituting object IDs",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def api_idor(url_pattern: str, id_values: str = "", engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, url_pattern, "api_idor", "active")
+            ids = [i.strip() for i in id_values.split(",") if i.strip()] if id_values else []
+            result = await orch.api.test_idor(url_pattern, ids or None, engagement_id)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_api_introspection",
+            description="Analyze a GraphQL endpoint for enabled introspection",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def api_introspection(graphql_url: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, graphql_url, "api_introspection")
+            result = await orch.api.analyze_graphql_introspection(graphql_url)
+            return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_api_full_scan",
+            description="Run a full API security scan: OpenAPI, GraphQL, authentication, endpoint inference",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
+        )
+        @guarded_tool()
+        async def api_full_scan(target: str, engagement_id: str = "") -> str:
+            orch = server.orchestrator
+            assert orch
+            await server._scope_denial(engagement_id, target, "api_full_scan", "active")
+            result = await orch.api.full_scan(target, engagement_id)
             return json.dumps(result, default=str)
 
         # ── HTTP Client ────────────────────────────────────────────────────
@@ -651,6 +895,60 @@ class OmegaServer:
             ctf = CTFEngine(orch.db)
             result = await ctf.add_hypothesis(challenge_id, hypothesis, category, test_plan)
             return json.dumps(result, default=str)
+
+        @mcp.tool(
+            name="omega_ctf_resolve_hypothesis",
+            description="Mark a CTF challenge hypothesis as success or failed with a result note",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
+        )
+        @guarded_tool()
+        async def ctf_resolve_hypothesis(challenge_id: str, hypothesis_id: str, result: str, successful: bool) -> str:
+            orch = server.orchestrator
+            assert orch
+            ctf = CTFEngine(orch.db)
+            await ctf.resolve_hypothesis(challenge_id, hypothesis_id, result, successful)
+            return json.dumps({"challenge_id": challenge_id, "hypothesis_id": hypothesis_id, "resolved": True})
+
+        @mcp.tool(
+            name="omega_ctf_add_note",
+            description="Append a note to a CTF challenge workspace",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
+        )
+        @guarded_tool()
+        async def ctf_add_note(challenge_id: str, note: str) -> str:
+            orch = server.orchestrator
+            assert orch
+            ctf = CTFEngine(orch.db)
+            await ctf.add_note(challenge_id, note)
+            return json.dumps({"challenge_id": challenge_id, "added": True})
+
+        @mcp.tool(
+            name="omega_ctf_add_artifact",
+            description="Record a discovered artifact (file, string, endpoint) on a CTF challenge",
+            annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False),
+        )
+        @guarded_tool()
+        async def ctf_add_artifact(challenge_id: str, artifact: str) -> str:
+            orch = server.orchestrator
+            assert orch
+            ctf = CTFEngine(orch.db)
+            await ctf.add_artifact(challenge_id, artifact)
+            return json.dumps({"challenge_id": challenge_id, "added": True})
+
+        @mcp.tool(
+            name="omega_ctf_hypothesis_ledger",
+            description="Get the hypothesis ledger for a CTF challenge",
+            annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+        )
+        @guarded_tool()
+        async def ctf_hypothesis_ledger(challenge_id: str) -> str:
+            orch = server.orchestrator
+            assert orch
+            ctf = CTFEngine(orch.db)
+            challenge = await ctf.get_challenge(challenge_id)
+            if not challenge:
+                raise ToolError(ErrorCode.NOT_FOUND, f"Challenge not found: {challenge_id}")
+            return json.dumps(ctf.get_hypothesis_ledger(challenge), default=str)
 
         @mcp.tool(
             name="omega_ctf_submit_flag",

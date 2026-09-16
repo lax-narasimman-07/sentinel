@@ -186,6 +186,15 @@ class Orchestrator:
         self.graph = AssetGraph(db)
         self.http = HTTPClient(db)
         self.web = WebSecurityEngine(db)
+        self._api = None
+
+    @property
+    def api(self) -> Any:
+        """Lazily constructed API security engine (avoids importing FastAPI surface at startup)."""
+        if self._api is None:
+            from omega.api import APISecurityEngine
+            self._api = APISecurityEngine(self.db)
+        return self._api
 
     async def create_engagement(self, name: str, mode: str = "analysis_only", description: str = "") -> Engagement:
         from omega.core.schemas import RateLimitPolicy
