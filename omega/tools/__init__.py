@@ -12,6 +12,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from omega.config import get_config
+from omega.core.concurrency import get_worker_pool
 from omega.core.errors import ErrorCode, ToolError
 from omega.core.schemas import (
     Evidence,
@@ -111,14 +113,18 @@ class ToolAdapter(ABC):
 
         Returns ``None`` when the run succeeded (``rc == 0``). On failure the
         stderr text is surfaced as the error message, prefixed with the most
-        appropriate error code: ``TIMEOUT`` (rc -1 + timed-out stderr),
-        ``BINARY_MISSING`` (rc 127), otherwise ``INTERNAL``.
+        appropriate error code: ``TIMEOUT`` (rc -1 + "timed out" in stderr),
+        ``BINARY_MISSING`` (rc 127), ``RATE_LIMITED`` (rc -1 + rate-limit
+        message), otherwise ``INTERNAL``.
         """
         if rc == 0:
             return None
         msg = (stderr or "").strip() or f"'{self.name()}' exited with code {rc}"
         msg = msg[:400]
-        if rc == -1 and "timed out" in (stderr or "").lower():
+        text = (stderr or "").lower()
+        if rc == -1 and "rate limit exceeded" in text:
+            code = ErrorCode.RATE_LIMITED.value
+        elif rc == -1 and "timed out" in text:
             code = ErrorCode.TIMEOUT.value
         elif rc == 127:
             code = ErrorCode.BINARY_MISSING.value
@@ -129,6 +135,27 @@ class ToolAdapter(ABC):
             error=f"{code}: {msg}",
             duration_ms=duration_ms, created_at=now_utc(), updated_at=now_utc(),
         )
+
+    async def _rate_limit_acquire(self) -> tuple[str, str, int, float] | None:
+        """Wait for a per-tool token; None on success, else a RATE_LIMITED run tuple."""
+        try:
+            from omega.config import get_config
+            from omega.core.concurrency import tool_bucket
+            cfg = get_config().rate_limits
+            if not cfg.enabled:
+                return None
+            bucket = tool_bucket(self.name())
+            if await bucket.acquire(timeout=cfg.wait_seconds):
+                return None
+            return (
+                "",
+                f"Rate limit exceeded for tool '{self.name()}' (waited {cfg.wait_seconds}s). Retry later.",
+                -1,
+                0.0,
+            )
+        except Exception:  # failing open keeps scans usable if config is broken
+            logger.exception("Rate limit check failed for %s", self.name())
+            return None
 
     def _binary_missing_run(self, cmd: list[str]) -> tuple[str, str, int, float] | None:
         """Detect a missing ``cmd[0]`` up front and return a structured run.
@@ -161,43 +188,19 @@ class ToolAdapter(ABC):
 
         The target binary is resolved through the shared existence check: a
         missing binary yields rc=127 with an install hint in stderr instead of a
-        bare OSError. Output is capped at ``max_output_bytes``.
+        bare OSError. Output is capped at ``max_output_bytes``. Launches wait on
+        a per-tool token bucket and a global worker pool (config-gated).
         """
         missing = self._binary_missing_run(cmd)
         if missing is not None:
             return missing
-        start = time.monotonic()
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            duration = (time.monotonic() - start) * 1000
-
-            stdout_str = stdout.decode("utf-8", errors="replace")[:max_output_bytes]
-            stderr_str = stderr.decode("utf-8", errors="replace")[:max_output_bytes]
-
-            return stdout_str, stderr_str, proc.returncode or 0, duration
-        except TimeoutError:
-            duration = (time.monotonic() - start) * 1000
-            with contextlib.suppress(Exception):
-                proc.kill()
-            return "", f"Command timed out after {timeout}s", -1, duration
-        except FileNotFoundError:
-            duration = (time.monotonic() - start) * 1000
-            return (
-                "",
-                f"Command not found: '{cmd[0]}'. Install it and ensure it is on PATH "
-                "(see README 'External binaries').",
-                127,
-                duration,
-            )
-        except Exception as e:
-            duration = (time.monotonic() - start) * 1000
-            return "", str(e), -1, duration
+        limited = await self._rate_limit_acquire()
+        if limited is not None:
+            return limited
+        if get_config().rate_limits.enabled:
+            async with get_worker_pool().run():
+                return await self._spawn(cmd, None, timeout, max_output_bytes, env)
+        return await self._spawn(cmd, None, timeout, max_output_bytes, env)
 
     async def _run_subprocess_with_input(
         self,
@@ -210,16 +213,34 @@ class ToolAdapter(ABC):
         """Run a subprocess with optional stdin input. Returns (stdout, stderr, returncode, duration_ms).
 
         Identical hardening to :meth:`_run_subprocess`: missing binary -> rc=127
-        with install hint, output capped at ``max_output_bytes``.
+        with install hint, output capped at ``max_output_bytes``, concurrency
+        gated by the per-tool token bucket and global worker pool.
         """
         missing = self._binary_missing_run(cmd)
         if missing is not None:
             return missing
+        limited = await self._rate_limit_acquire()
+        if limited is not None:
+            return limited
+        if get_config().rate_limits.enabled:
+            async with get_worker_pool().run():
+                return await self._spawn(cmd, input_data, timeout, max_output_bytes, env)
+        return await self._spawn(cmd, input_data, timeout, max_output_bytes, env)
+
+    async def _spawn(
+        self,
+        cmd: list[str],
+        input_data: bytes | None,
+        timeout: float,
+        max_output_bytes: int,
+        env: dict[str, str] | None,
+    ) -> tuple[str, str, int, float]:
+        """Spawn a subprocess (exec-style, no shell) and read its capped output."""
         start = time.monotonic()
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdin=asyncio.subprocess.PIPE if input_data else None,
+                stdin=asyncio.subprocess.PIPE if input_data is not None else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
@@ -236,7 +257,7 @@ class ToolAdapter(ABC):
             duration = (time.monotonic() - start) * 1000
             with contextlib.suppress(Exception):
                 proc.kill()
-            return "", f"Timed out after {timeout}s", -1, duration
+            return "", f"Command timed out after {timeout}s", -1, duration
         except FileNotFoundError:
             duration = (time.monotonic() - start) * 1000
             return (
@@ -283,12 +304,19 @@ class ToolRegistry:
 
 
 class ToolExecutor:
-    """Executes tools through the scope engine with evidence collection."""
+    """Executes tools through the scope engine with evidence collection.
+
+    Exposes ``pool`` — the process-wide :class:`WorkerPool` (sized from
+    ``RateLimitConfig.max_concurrent``). Concurrent subprocess launches are
+    gated inside the adapter base runners, so orchestration layers may also
+    reserve a slot here without double-bounding.
+    """
 
     def __init__(self, db: Database, scope: ScopeEngine, registry: ToolRegistry) -> None:
         self.db = db
         self.scope = scope
         self.registry = registry
+        self.pool = get_worker_pool()
 
     async def execute(self, request: ToolExecutionRequest, engagement_id: str = "") -> ToolResult:
         adapter = self.registry.get(request.tool_name)

@@ -1,7 +1,7 @@
 # Session State — 2026-09-16 (save checkpoint)
 
 ## Current phase
-Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **in progress** (1.3 ✓, 1.7 ✓, 1.4 ✓; 1.5/1.6 next).
+Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **in progress** (1.3 ✓, 1.7 ✓, 1.4 ✓, 1.5 ✓; 1.6 next).
 
 ## Completed this session
 ### Phase 0 (diagnose/repair) — COMPLETE
@@ -18,44 +18,53 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 
 ### Phase 1.4 (subprocess hardening) — COMPLETE
 - ✅ `omega/tools/__init__.py` base helpers added to `ToolAdapter`:
-  - `_require_binary()` (raises `ToolError(BINARY_MISSING)`), `_binary_missing_hint()`, `_missing_binary_result()` (non-raising structured `ToolResult`), `_max_output_bytes()` (from config, default 2_000_000), `_run_failure()` (normalizes `(stdout,stderr,rc,duration)` → error string: rc 0 → None; rc -1+timeout → `TIMEOUT:`; rc 127 → `BINARY_MISSING:`; else `INTERNAL:`; truncates to 400 chars), `_binary_missing_run()` (detects a missing-executable outcome tuple).
-  - Hardened `_run_subprocess`/`_run_subprocess_with_input`: pre-spawn binary existence check (rc 127 + install hint), `FileNotFoundError` → rc 127, `TimeoutError` → rc -1 + "…timed out after {t}s" (kill via `contextlib.suppress`), output capped at `max_output_bytes`.
-- ✅ `omega/recon/__init__.py`: all 14 adapters (subfinder, httpx, nmap, ffuf, whatweb, gobuster, katana, nuclei, nikto, naabu, wafw00f, gospider, dnsx, masscan) migrated to `self._missing_binary_result()` + `self._run_failure(...)` + `max_output_bytes=self._max_output_bytes()`. WhatWeb temp-file flow rewritten (no longer swallows failures). ffuf rc==1 → success (completed, no matches). Removed dead `mode` var + unused imports (asyncio/shutil/time).
-- ✅ Cleaned lint in touched code: `contextlib.suppress` over try/except/pass, builtin `TimeoutError`, `ScopeEngine`/`Database` → `TYPE_CHECKING` block, removed `_find_binary`'s unused `cap`.
-- ✅ NEW `tests/test_phase14_subprocess.py` (15 tests): install-hint result, `_require_binary` ToolError, base-runner rc 127 (name + abs path), `_binary_missing_run`, `_run_failure` mapping (success/nonzero/timeout/rc127), real-spawn output cap (1MB → 200 bytes), default 2MB cap, adapter timeout via monkeypatched runner, adapter missing-binary result, static migration checks (all 14 adapters use the 3 shared helpers; no `create_subprocess_shell`/`shell=True`/string-built commands).
-- ✅ **Full suite: 293 passed** (278 + 15 new), same 1 warning. Ruff: no NEW violations vs baseline (remaining `S101`/`S314`/`E501` are pre-existing repo-wide debt).
+  - `_require_binary()` (raises `ToolError(BINARY_MISSING)`), `_binary_missing_hint()`, `_missing_binary_result()` (non-raising structured `ToolResult`), `_max_output_bytes()` (from config, default 2_000_000), `_run_failure()` (normalizes `(stdout,stderr,rc,duration)` → error string), `_binary_missing_run()`.
+  - Hardened `_run_subprocess`/`_run_subprocess_with_input`: binary pre-check (rc 127 + hint), `TimeoutError` → rc -1 + timed-out stderr, output capped.
+- ✅ `omega/recon/__init__.py`: all 14 adapters migrated to `_missing_binary_result()` + `_run_failure(...)` + `max_output_bytes`. WhatWeb temp-file flow rewritten. ffuf rc==1 tolerated.
+- ✅ 15 phase14 tests; full suite 293 passed.
+
+### Phase 1.5 (concurrency / rate limiting) — COMPLETE
+- ✅ NEW `omega/core/concurrency.py`:
+  - `AsyncTokenBucket` — awaitable token bucket; `acquire(timeout)->bool` sleeps until a token refills or the wait exceeds `timeout`; starts full at `burst`.
+  - `WorkerPool` — process-wide `asyncio.Semaphore` with `async with pool.run():` contextmanager (reusable across loops).
+  - Module singletons `get_worker_pool()` (sized from `RateLimitConfig.max_concurrent`), `tool_bucket(name)` (per-tool, from `per_tool_rps`/`burst_size`), `reset_concurrency()` for tests; all config created lazily (no import cycle).
+- ✅ `RateLimitConfig` extended: `enabled` (default True), `wait_seconds` (30); `from_env` now reads `OMEGA_RATE_LIMIT`, `OMEGA_TOOL_RPS`, `OMEGA_MAX_CONCURRENT`, `OMEGA_BURST`, `OMEGA_RATE_WAIT`. Removed unused `typing.Any` import.
+- ✅ Base runners now: `_rate_limit_acquire()` (per-tool token wait; fails-open with log on config error) then `async with get_worker_pool().run():` around the shared `_spawn()` core. `_run_failure` maps `rc==-1` + "rate limit exceeded" → `RATE_LIMITED`.
+- ✅ `ToolExecutor` exposes `self.pool` (public API). Deliberately does NOT wrap `adapter.execute` in the pool — nesting the same semaphore deadlocks at `max_concurrent=1`.
+- ✅ NEW `tests/test_phase15_concurrency.py` (16 tests): bucket burst/block/refill/zero-rps/wait, pool concurrency bound, shared singletons + config sizing, adapter throttled (depleted bucket → rc -1 RATE_LIMITED stderr), adapter proceeds with tokens, `_run_failure` RATE_LIMITED mapping, disabled config bypasses throttling.
+- ✅ **Full suite: 309 passed** (293 + 16 new), same 1 warning. Ruff: no new violations vs baseline (S101/S314/E501 pre-existing).
 
 ## In progress (exact stopping point)
-- Phase 1.4 done and verified (293 green, ruff baseline-clean). Not yet committed.
+- Phase 1.5 done and verified (309 green, ruff baseline-clean). Committed as `wip: checkpoint 2026-09-16` (`4448bff` had 1.3/1.4; this commit adds 1.5).
 
 ## Next steps (ordered)
-1. **Commit checkpoint**: `git add -A && git commit -m "wip: checkpoint 2026-09-16"`.
-2. **Phase 1.5 Concurrency / rate limiting**: verify per-target active-tool limits; add global worker pool/semaphore for concurrent scans (rate-limit config per tool; awaited Semaphore around `_run_subprocess*`; expose in `ToolExecutor`).
-3. **Phase 1.6 Caching**: cache recon outputs in SQLite keyed by target+timestamp (respect `--no-cache`/staleness config).
-4. **Phase 2 guardrails**: audit active tools for scope gating; authorization metadata on findings/reports; no autonomous exploitation / brute-force / DoS tooling.
-5. **Phase 3 feature modules** + **Phase 4 quality bar** (README external-binaries matrix, `health_check` tool).
+1. **Phase 1.6 Caching**: cache recon outputs in SQLite keyed by target+tool+params+timestamp; staleness window from config; `omit_cache`/`force` param; skip cache when `RateLimitPolicy`/mode demands fresh data; wire via a small cache layer used by adapters or the ToolExecutor.
+2. **Phase 2 guardrails**: audit active tools for scope gating; authorization metadata (authorization basis, rules matched, risk level) on findings/reports; no autonomous exploitation / brute-force / DoS tooling.
+3. **Phase 3 feature modules** + **Phase 4 quality bar** (README external-binaries matrix, `health_check` tool).
 
 ## Known issues / blockers
 - `tests/fixtures.py:167` `TestServer` has `__init__` → PytestCollectionWarning (non-fatal).
 - `test_core.py::TestScope::test_rate_limiting` is a no-op assertion (covered by phase0 regressions).
-- Full suite takes ~2.7 min (real harness MCP subprocess + big integration suite); bash default 120s timeout is too short — use ≥300s.
-- Remaining ruff debt is pre-existing: `S101` asserts in tests (636 repo-wide), `S314` xml parse (`NmapAdapter`, untouched), `E501` long lines in recon normalize methods (untouched) and elsewhere (e.g. `omega/mcp`).
+- Full suite takes ~2.7 min (real harness MCP subprocess + integration suite); bash default 120s timeout too short — use ≥300s.
+- Remaining ruff debt is pre-existing: `S101` asserts in tests, `S314` xml parse (`NmapAdapter`), `E501` long lines in recon normalize methods, `S108` `/tmp/omega-sandbox` default in `ExecutionConfig`.
 
 ## Test status
-- Passing: full suite `293` (278 base/phase0 + 15 phase14). 
-- Failing: none. Not yet run: Phase 1.5/1.6 tests (to be written).
+- Passing: full suite `309` (278 base/phase0 + 15 phase14 + 16 phase15). 
+- Failing: none. Not yet run: Phase 1.6 tests (to be written).
 
 ## Notes/decisions made this session
-- Fail-fast: adapter-level timeout defaults must be well under the CLI tool's internal timeout so the shared subprocess async timeout fires first.
-- Binary-missing check lives INSIDE base `_run_subprocess*` (rc 127 tuple, not raised) — deliberately NOT at top of `adapter.execute()` so unit tests monkeypatching the runners never require real binaries. `_find_binary()` check in `execute()` remains a non-raising fast path returning `_missing_binary_result()`.
-- Subprocess contract `(stdout, stderr, rc, duration_ms)` is stable; all monkeypatched `_run_subprocess`/`_run_subprocess_with_input` fakes must keep the 4-tuple shape.
-- Error format: `{"error": {"code", "message", "retryable"}}` — backward compatible with harness assertions (`"error" in parsed`).
+- Rate limiting design: token bucket lives at the adapter subprocess boundary (per-tool), NOT in MCP handlers, so direct adapter.execute() calls in Unit tests and the MCP path are throttled consistently. Per-target limits remain in `ScopeEngine.enforce_rate_limit` (per-engagement token bucket keyed per target; values hardcoded per policy: STEALTH 1rps/burst3, NORMAL 5/10, AGGRESSIVE 20/50).
+- Global pool bounds only actual `_run_subprocess*` spawns (the real FD/process bottleneck). `WorkerPool` and per-tool buckets are lazily created from `get_config()` → no config/tools/recon import cycle.
+- Nesting the SAME `WorkerPool` semaphore (executor-level wrap + subprocess-level wrap) deadlocks at `max_concurrent=1` — avoided by exposing `ToolExecutor.pool` instead of wrapping.
+- AsyncTokenBucket has no await between refill and decrement → benign in the single-threaded event loop; waits happen only in `asyncio.sleep`/refill phases.
+- Error format: `{"error": {"code", "message", "retryable"}}` — backward compatible with harness assertions.
 - `@guarded_tool` `functools.wraps` preserves MCP SDK `inspect.signature` → schema extraction (verified via 41-tool harness). `omega_audit_log` not decorated (audit-recursion guard).
+- Git identity is NOT configured: commit with `git -c user.name='lax' -c user.email='lax@localhost' commit …` (matches prior commits; no persistent config change).
 - Next session: "continue"/"resume" → read this file, 2–3 line recap, proceed to Next steps without asking. "stop"/"pause" → update this file + commit checkpoint.
 
 ## Repo state
 - Branch: `master`
-- Last committed: `af3726a` — "wip: checkpoint 2026-09-16" (before Phase 1.3 work)
-- Uncommitted changes this session (to be committed as updated checkpoint):
-  - NEW: `omega/core/errors.py`, `tests/test_phase14_subprocess.py`
-  - CHANGED: `omega/mcp/__init__.py`, `omega/tools/__init__.py`, `omega/recon/__init__.py`, `tests/test_phase0_regressions.py`
+- Last committed: (this checkpoint — Phase 1.5) — run `git log --oneline -3`
+- Changed/new this session:
+  - NEW: `omega/core/errors.py`, `tests/test_phase14_subprocess.py`, `omega/core/concurrency.py`, `tests/test_phase15_concurrency.py`
+  - CHANGED: `omega/mcp/__init__.py`, `omega/tools/__init__.py`, `omega/recon/__init__.py`, `omega/config/__init__.py`, `tests/test_phase0_regressions.py`, `.opencode/SESSION_STATE.md`

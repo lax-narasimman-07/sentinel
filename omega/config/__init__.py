@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -21,11 +20,13 @@ class ToolConfig(BaseModel):
 
 
 class RateLimitConfig(BaseModel):
+    enabled: bool = True
     global_rps: float = 10.0
     per_target_rps: float = 5.0
     per_tool_rps: float = 3.0
     max_concurrent: int = 10
     burst_size: int = 20
+    wait_seconds: float = 30.0
     policy: RateLimitPolicy = RateLimitPolicy.NORMAL
 
 
@@ -94,9 +95,14 @@ class OmegaConfig(BaseModel):
         return cls(
             base_dir=base,
             rate_limits=RateLimitConfig(
+                enabled=os.environ.get("OMEGA_RATE_LIMIT", "true").lower() != "false",
                 policy=RateLimitPolicy(os.environ.get("OMEGA_RATE_POLICY", "normal")),
                 global_rps=float(os.environ.get("OMEGA_GLOBAL_RPS", "10")),
                 per_target_rps=float(os.environ.get("OMEGA_TARGET_RPS", "5")),
+                per_tool_rps=float(os.environ.get("OMEGA_TOOL_RPS", "3")),
+                max_concurrent=int(os.environ.get("OMEGA_MAX_CONCURRENT", "10")),
+                burst_size=int(os.environ.get("OMEGA_BURST", "20")),
+                wait_seconds=float(os.environ.get("OMEGA_RATE_WAIT", "30")),
             ),
             execution=ExecutionConfig(
                 sandbox_enabled=os.environ.get("OMEGA_SANDBOX", "true").lower() == "true",
