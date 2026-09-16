@@ -240,7 +240,7 @@ async def test_scope_gated_tools_allow_after_include_rule():
         r = await _call(s, "omega_recon_probe", {"target": "http://target.example.com", "engagement_id": eid})
         data = _json(r)
         # Should NOT be a scope denial; execution proceeds (binary may be absent/fail, but not scope-blocked)
-        assert "Scope denied" not in data.get("error", "")
+        assert "Scope denied" not in (data.get("error") or "")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

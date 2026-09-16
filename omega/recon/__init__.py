@@ -311,10 +311,26 @@ class WhatWebAdapter(ToolAdapter):
         if not binary:
             return ToolResult(id=new_id(), tool_name="whatweb", success=False, error="whatweb not found", created_at=now_utc(), updated_at=now_utc())
 
-        cmd = ["whatweb", "--color=never", "-a", "3", "--log-json=/dev/stdout", request.target]
+        import tempfile as _tmp
+        with _tmp.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            tmp_path = tf.name
+        cmd = ["whatweb", "--color=never", "-a", "3", f"--log-json={tmp_path}", request.target]
         cmd.extend(request.parameters.get("extra_args", []))
+        timeout = request.parameters.get("timeout", 30)
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=60)
+        try:
+            stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
+            with open(tmp_path) as f:
+                stdout = f.read()
+        except Exception:
+            stdout = ""
+            duration = 0
+        finally:
+            try:
+                import os as _os
+                _os.unlink(tmp_path)
+            except OSError:
+                pass
         techniques = []
         if stdout:
             for line in stdout.strip().split("\n"):
@@ -355,12 +371,13 @@ class GobusterAdapter(ToolAdapter):
         if not binary:
             return ToolResult(id=new_id(), tool_name="gobuster", success=False, error="gobuster not found", created_at=now_utc(), updated_at=now_utc())
 
+        timeout = request.parameters.get("timeout", 60)
         mode = request.parameters.get("mode", "dir")
         wordlist = request.parameters.get("wordlist", "/usr/share/wordlists/dirb/common.txt")
         cmd = ["gobuster", "dir", "-u", request.target, "-w", wordlist, "-q", "--no-error"]
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=300)
+        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
 
         paths = []
         for line in stdout.strip().split("\n"):
@@ -400,10 +417,13 @@ class KatanaAdapter(ToolAdapter):
             return ToolResult(id=new_id(), tool_name="katana", success=False, error="katana not found", created_at=now_utc(), updated_at=now_utc())
 
         depth = request.parameters.get("depth", 2)
-        cmd = ["katana", "-u", request.target, "-d", str(depth), "-jc", "-silent", "-jsonl"]
+        timeout = request.parameters.get("timeout", 30)
+        # Hard cap katana's own connection timeout so it fails fast on dead hosts
+        katana_timeout = min(int(timeout * 0.8), 20)
+        cmd = ["katana", "-u", request.target, "-d", str(depth), "-jc", "-silent", "-jsonl", "-timeout", str(katana_timeout)]
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=300)
+        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
 
         urls = []
         for line in stdout.strip().split("\n"):
@@ -445,17 +465,15 @@ class NucleiAdapter(ToolAdapter):
 
         severity_filter = request.parameters.get("severity", "")
         templates = request.parameters.get("templates", "")
-        cmd = ["nuclei", "-u", request.target, "-jsonl", "-silent"]
+        timeout = request.parameters.get("timeout", 120)
+        cmd = ["nuclei", "-u", request.target, "-jsonl", "-silent", "-timeout", "5"]
         if severity_filter:
             cmd.extend(["-severity", severity_filter])
         if templates:
             cmd.extend(["-t", templates])
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(
-            cmd,
-            timeout=request.parameters.get("timeout", 600),
-        )
+        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
 
         findings: list[dict[str, Any]] = []
         for line in stdout.strip().split("\n"):
@@ -519,13 +537,11 @@ class NiktoAdapter(ToolAdapter):
         if not binary:
             return ToolResult(id=new_id(), tool_name="nikto", success=False, error="nikto not found", created_at=now_utc(), updated_at=now_utc())
 
+        timeout = request.parameters.get("timeout", 120)
         cmd = ["nikto", "-h", request.target, "-Format", "json", "-output", "/dev/stdout"]
         cmd.extend(request.parameters.get("extra_args", []))
 
-        stdout, stderr, rc, duration = await self._run_subprocess(
-            cmd,
-            timeout=request.parameters.get("timeout", 600),
-        )
+        stdout, stderr, rc, duration = await self._run_subprocess(cmd, timeout=timeout)
 
         vulns: list[dict[str, Any]] = []
         server_info: dict[str, str] = {}

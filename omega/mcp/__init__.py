@@ -186,7 +186,7 @@ class OmegaServer:
             description="Enumerate subdomains using subfinder (passive, safe). Requires an engagement with target in scope.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
-        async def recon_subdomains(target: str, engagement_id: str = "") -> str:
+        async def recon_subdomains(target: str, engagement_id: str = "", timeout: int = 120) -> str:
             orch = server.orchestrator
             assert orch
             if engagement_id:
@@ -194,7 +194,7 @@ class OmegaServer:
                 if not scope_check.allowed:
                     return json.dumps({"error": f"Scope denied: {scope_check.reason}"})
             adapter = SubfinderAdapter()
-            request = ToolExecutionRequest(tool_name="subfinder", target=target, engagement_id=engagement_id)
+            request = ToolExecutionRequest(tool_name="subfinder", target=target, engagement_id=engagement_id, parameters={"timeout": timeout})
             result = await adapter.execute(request)
             if engagement_id and result.success:
                 await orch.evidence.store_tool_output(engagement_id, "subfinder", "latest", target, result.parsed_output, result.raw_output)
@@ -208,7 +208,7 @@ class OmegaServer:
             description="Probe live HTTP hosts using httpx. Pass targets as newline-separated list or a single target.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
-        async def recon_probe(target: str, engagement_id: str = "", targets: str = "") -> str:
+        async def recon_probe(target: str, engagement_id: str = "", targets: str = "", timeout: int = 120) -> str:
             orch = server.orchestrator
             assert orch
             error = await server._scope_denial(engagement_id, target, "httpx", "passive")
@@ -218,7 +218,7 @@ class OmegaServer:
             target_list = targets.split("\n") if targets else [target]
             request = ToolExecutionRequest(
                 tool_name="httpx", target=target,
-                parameters={"targets": target_list}, engagement_id=engagement_id,
+                parameters={"targets": target_list, "timeout": timeout}, engagement_id=engagement_id,
             )
             result = await adapter.execute(request)
             return json.dumps({"success": result.success, "live_hosts": result.parsed_output.get("live_hosts", []), "error": result.error}, default=str)
@@ -228,7 +228,7 @@ class OmegaServer:
             description="Port scan using nmap. Scans for open ports and service detection.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
-        async def recon_portscan(target: str, ports: str = "1-1000", engagement_id: str = "", scan_type: str = "syn") -> str:
+        async def recon_portscan(target: str, ports: str = "1-1000", engagement_id: str = "", scan_type: str = "syn", timeout: int = 120) -> str:
             orch = server.orchestrator
             assert orch
             if engagement_id:
@@ -238,7 +238,7 @@ class OmegaServer:
             adapter = NmapAdapter()
             request = ToolExecutionRequest(
                 tool_name="nmap", target=target,
-                parameters={"ports": ports, "scan_type": scan_type}, engagement_id=engagement_id,
+                parameters={"ports": ports, "scan_type": scan_type, "timeout": timeout}, engagement_id=engagement_id,
             )
             result = await adapter.execute(request)
             return json.dumps({"success": result.success, "services": result.parsed_output.get("services", []), "error": result.error, "duration_ms": result.duration_ms}, default=str)
@@ -248,7 +248,7 @@ class OmegaServer:
             description="Directory/endpoint fuzzing using ffuf. Requires a target URL.",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
-        async def recon_fuzz(target: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", engagement_id: str = "", extensions: str = "") -> str:
+        async def recon_fuzz(target: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", engagement_id: str = "", extensions: str = "", timeout: int = 60) -> str:
             orch = server.orchestrator
             assert orch
             error = await server._scope_denial(engagement_id, target, "ffuf", "active")
@@ -257,7 +257,7 @@ class OmegaServer:
             adapter = FfufAdapter()
             request = ToolExecutionRequest(
                 tool_name="ffuf", target=target,
-                parameters={"wordlist": wordlist, "extensions": extensions, "mode": "directory"},
+                parameters={"wordlist": wordlist, "extensions": extensions, "mode": "directory", "timeout": timeout},
                 engagement_id=engagement_id,
             )
             result = await adapter.execute(request)
@@ -268,12 +268,12 @@ class OmegaServer:
             description="Technology fingerprinting using whatweb",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
-        async def recon_tech(target: str, engagement_id: str = "") -> str:
+        async def recon_tech(target: str, engagement_id: str = "", timeout: int = 30) -> str:
             error = await server._scope_denial(engagement_id, target, "whatweb", "passive")
             if error:
                 return error
             adapter = WhatWebAdapter()
-            request = ToolExecutionRequest(tool_name="whatweb", target=target, engagement_id=engagement_id)
+            request = ToolExecutionRequest(tool_name="whatweb", target=target, engagement_id=engagement_id, parameters={"timeout": timeout})
             result = await adapter.execute(request)
             return json.dumps({"success": result.success, "techniques": result.parsed_output.get("techniques", []), "error": result.error}, default=str)
 
@@ -282,14 +282,14 @@ class OmegaServer:
             description="Crawl website and discover endpoints using katana",
             annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True),
         )
-        async def recon_crawl(target: str, depth: int = 2, engagement_id: str = "") -> str:
+        async def recon_crawl(target: str, depth: int = 2, engagement_id: str = "", timeout: int = 30) -> str:
             error = await server._scope_denial(engagement_id, target, "katana", "passive")
             if error:
                 return error
             adapter = KatanaAdapter()
             request = ToolExecutionRequest(
                 tool_name="katana", target=target,
-                parameters={"depth": depth}, engagement_id=engagement_id,
+                parameters={"depth": depth, "timeout": timeout}, engagement_id=engagement_id,
             )
             result = await adapter.execute(request)
             return json.dumps({"success": result.success, "urls": result.parsed_output.get("urls", [])[:200], "count": len(result.parsed_output.get("urls", [])), "error": result.error}, default=str)

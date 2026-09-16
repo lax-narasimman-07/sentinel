@@ -1,53 +1,53 @@
-# Session State — 2026-09-15
+# Session State — 2026-09-16 (save checkpoint)
 
 ## Current phase
-Phase 0 — Diagnose & Repair (fixes done; per-tool harness sweep in progress)
+Phase 0 — Diagnose & Repair: **COMPLETE** (all 278 tests green). Phase 1 — Architecture hardening: just started (no code written yet).
 
 ## Completed this session
-- ✅ Baseline: full suite runs green before changes — `262 passed` (92.65s).
-- ✅ Phase 0 diagnosis: enumerated all **41 registered MCP tools** (engagement 3, scope 3, recon 6, web 6, http 1, orchestrated scan 1, graph 3, findings 7, evidence 1, ctf 6, report 1, tools_list/audit/doctor 3). Read every engine + adapter. Verified `mcp.server.mcpserver` / `mcp.types.ToolAnnotations` imports are valid in this SDK. Checked installed binaries (present: subfinder/amass/httpx/nmap/ffuf/gobuster/katana/whatweb/nuclei/exiftool/binwalk/strings/file; missing: sqlmap/hashcat/john/checksec).
-- ✅ Confirmed latent bugs → all fixed:
-  - `omega/recon/__init__.py` — **HttpxAdapter fed NO targets to httpx** (broken `omega_recon_probe`). Now builds `... -l /dev/stdin` and pipes targets via stdin.
-  - `omega/recon/__init__.py` — removed duplicate `DnsxAdapter._run_subprocess_with_input` (now inherited).
-  - `omega/tools/__init__.py` — added shared base `ToolAdapter._run_subprocess_with_input(cmd, input_data, timeout, max_output_bytes, env)`.
-  - `omega/scope/__init__.py` — `RateLimiter` rewritten as time-aware token bucket (was: bucket never refilled → permanent hard lockout after burst; stray `burst :=` walrus removed; broken `refill()` removed). `import time` now module-level.
-  - `omega/scope/__init__.py` — removed duplicated unreachable CTF `if mode == EngagementMode.CTF:` block in `authorize_target` (lines 126-136 old).
-  - `omega/mcp/__init__.py` — added `OmegaServer._scope_denial(engagement_id, target, action, risk_level)` helper (full authorize pipeline; runs open-world when engagement_id empty). Wired into previously **ungated** tools: `recon_probe` (passive), `recon_fuzz` (active), `recon_tech` (passive), `recon_crawl` (passive), all six web tools (passive), `http_request` (active only for non-GET/HEAD/OPTIONS).
-  - `omega/http/__init__.py` — `HTTPClient.request` now catches `httpx.HTTPError` (+ generic fallback) and returns a structured error dict (`status_code: 0`, `"error": "..."`) instead of raising — the unhandled-async-exception failure class (this is what broke the harness on `omega_web_headers`).
-- ✅ `tests/test_phase0_regressions.py` — **14 passed** (httpx stdin feeding, RateLimiter refill/burst/cap/isolation, scope gating for recon/web/http tools deny-without-rules + allow-after-rule, CTF exclude path, no permanent rate lockout).
-- ✅ Full suite re-run after fixes: `262 passed` (no regressions).
+- ✅ Isolated harness timeout culprit: **katana** (`omega_recon_crawl`) hung 30s+ on dead host `http://127.0.0.1:1` (no `-timeout` CLI flag, adapter default 300s).
+- ✅ Fixed adapter fail-fast behavior in `omega/recon/__init__.py`:
+  - KatanaAdapter: added `-timeout <min(timeout*0.8,20)>` CLI flag + per-request timeout (default 30).
+  - WhatWebAdapter: replaced `/dev/stdout` log path (whatweb cannot write there) with a temp JSON file; per-request timeout (default 30); graceful read of temp file.
+  - GobusterAdapter (60s), NucleiAdapter (120s + `-timeout 5`), NiktoAdapter (120s): per-request timeout forwarding.
+- ✅ `omega/mcp/__init__.py`: added `timeout` param forwarding to recon tools — `recon_probe`, `recon_portscan`, `recon_fuzz`, `recon_tech`, `recon_crawl`, `recon_subdomains`.
+- ✅ `tests/test_harness.py`: per-case progress + overall 300s harness ceiling + short adapter-level timeouts → deterministic.
+- ✅ Fixed `tests/test_phase0_regressions.py::test_scope_gated_tools_allow_after_include_rule`: assertion `"Scope denied" not in data.get("error","")` failed because probe returns `"error": null` on success → changed to `(data.get("error") or "")`.
+- ✅ **Full suite: 278 passed** (262 base + 14 phase0 regressions + 2 harness), 1 known non-fatal collection warning.
 
 ## In progress (exact stopping point)
-- File: `tests/test_harness.py`
-- Function/section: `test_all_registered_tools_have_structured_responses` (and the `HARNESS_CASES` list it drives)
-- What's half-done: The harness boots the real MCP server over stdio and calls all 41 tools with benign, fail-fast args asserting structured TextContent responses + server survival (Phase 0 deliverable). It initially caught the `omega_web_headers` unhandled-HTTP-exception bug (now fixed). After the HTTPClient fix, the run gets further but **one tool call now times out** (asyncio TimeoutError at ~33s total → a 30s case). **The exact tool is not yet identified** — the harness does not print per-case progress. Primary suspects (in order): `omega_recon_tech` (whatweb `-a 3` against `http://127.0.0.1:1`) and `omega_recon_crawl` (katana). The two 90s cases (`omega_web_full_scan`, `omega_scan`) are not the culprit (would have shown ~90s).
+- **Phase 1 has NOT been coded yet.** I just finished reading `omega/mcp/__init__.py` (the `OmegaServer` class + `_register_tools`) and located the MCP SDK source at `.venv/lib/python3.13/site-packages/mcp/server/mcpserver/server.py` to understand how `@mcp.tool()` derives the input schema from handler function signatures (for safe wrapping). No design/implementation decisions were made beyond that.
 
 ## Next steps (ordered)
-1. Identify the timing-out harness case: add per-case progress output (e.g. `print(name, flush=True)` inside the loop) and run `.venv/bin/python -m pytest tests/test_harness.py -x -s`. Then either make the offending adapter fail-fast (cap retries/timeout) or bump its harness timeout to be genuinely fail-fast via the adapter.
-2. Re-run `.venv/bin/python -m pytest -q` — target: all green (262 + 14 regressions + harness).
-3. Finish rest of Phase 0: confirm all 41 tools respond cleanly through the harness; update the tool catalog table (name → input schema → external call → status) if it still needs to be written down somewhere (results can be folded into the Phase 1 REPORT/DOC).
-4. Phase 1 hardening: uniform error contract `{ error: { code, message, retryable } }`, config layer, worker-pool queue + concurrency, caching, structured invocation logging.
-5. Phase 2 guardrails (user says hard constraints): enforce scope gating for ALL active tools incl. outside-engagement flows; ensure no autonomous exploitation / live credential brute-forcing / DoS; add authorization notes to finding/report metadata.
-6. Phase 3.1-3.4 + Phase 4 feature modules and quality pass (see original prompt lists).
+1. Read `.venv/lib/python3.13/site-packages/mcp/server/mcpserver/server.py` — confirm how the `tool()` decorator builds `inputSchema` (inspect.signature? follows `__wrapped__`?), so a wrapper decorator preserves schema extraction.
+2. **Phase 1.3 Uniform error contract**: create `omega/core/errors.py`:
+   - `ErrorCode` enum: `SCOPE_DENIED`, `TOOL_NOT_FOUND`, `BINARY_MISSING`, `TIMEOUT`, `RATE_LIMITED`, `INVALID_ARGS`, `INTERNAL`.
+   - `err(code, message, retryable) -> str` returning `json.dumps({"error": {"code", "message", "retryable"}})`.
+   - A `@guarded_tool` decorator capturing exceptions → `INTERNAL` error (keep signature via `functools.wraps`).
+   - Apply it around every tool handler (double decoration: `@mcp.tool(...)` outer, `@guarded_tool` inner, or wrap inside `_register_tools`).
+3. **Phase 1.7 Structured invocation logging**: append-only JSONL audit file `{timestamp, tool, target, args, outcome}` — hook into same wrapper; make `omega_audit_log` read it. Discover where config stores base dir (`OMEGA_BASE_DIR`, `config/__init__.py`).
+4. **Phase 1.4 Subprocess hardening**: consolidate all adapters on shared `_run_subprocess_with_input` (`omega/tools/__init__.py`); ensure max output cap + stderr→structured error on nonzero rc everywhere.
+5. **Phase 1.5 Concurrency / rate limiting**: verify per-target active-tool limits; add global worker pool / semaphore for concurrent scans.
+6. **Phase 1.6 Caching**: cache recon outputs in SQLite keyed by target+timestamp.
+7. **Phase 2 guardrails**: audit active tools for scope gating; add authorization metadata to findings/reports.
+8. Phase 3 feature modules + Phase 4 (README binaries matrix, `health_check` tool).
 
 ## Known issues / blockers
-- `tests/test_harness.py::test_all_registered_tools_have_structured_responses` FAILS (timeout, culprit tool TBD — see In progress). `test_server_survives_unknown_tool_then_healthy_tool` in same file PASSES.
-- Existing suite has 1 known non-fatal pytest warning: `TestServer` class in `tests/fixtures.py:167` has `__init__` (collection warning).
-- Note: `test_core.py::TestScope::test_rate_limiting` made only a no-op assertion (`allowed or not allowed`); behavior now covered properly by the new regression tests.
-- First commit in this repo—after this one, ensure future commits are incremental.
-
-## Notes/decisions made this session
-- Design pattern adopted (`_scope_denial`): with **no** engagement_id, recon/web/http tools run open-world (ungated) — matches the recon adapters' existing `open_world_hint=True` design and keeps existing open-world tests passing (verified). With an engagement_id, the full `authorize` pipeline (target scope → action → execution mode → rate limit) applies, and every previously-ungated tool now fails with a structured `{"error": "Scope denied: ..."}`.
-- HttpxAdapter stdin: targets are newline-joined and encoded UTF-8; `-l /dev/stdin` flag added. Single fallback to `request.target` preserved.
-- Kept `omega_recon_subdomains` / `omega_recon_portscan` scope logic untouched (they already gated via `authorize_target`/`authorize`).
-- HTTPClient now returns `status_code: 0` + `error` on network failure rather than raising; all web-engine methods use `.get()` so they degrade gracefully.
+- `tests/fixtures.py:167` `TestServer` has `__init__` → PytestCollectionWarning (non-fatal).
+- `test_core.py::TestScope::test_rate_limiting` is a no-op assertion (covered by phase0 regressions).
+- Note: full suite takes ~2.5 min (harness boots real MCP server subprocess twice + big integration suite).
 
 ## Test status
-- Passing: `tests/test_phase0_regressions.py` (14), full pre-existing suite (262), `tests/test_harness.py::test_server_survives_unknown_tool_then_healthy_tool`
-- Failing: `tests/test_harness.py::test_all_registered_tools_have_structured_responses` (timeout on one 30s case)
-- Not yet run: none outstanding (the whole suite was re-run green after the Phase 0 fixes)
+- Passing: full suite `278` (262 base + 14 phase0 regressions + 2 harness).
+- Failing: none.
+- Not yet run: Phase 1+ tests (to be written).
+
+## Notes/decisions made this session
+- Fail-fast philosophy: adapter-level timeout defaults must be well under the CLI tool's own internal timeout so the shared subprocess async timeout fires first with a structured error, never a client-side hang.
+- whatweb cannot use `--log-json=/dev/stdout`; temp file is the reliable approach.
+- Harness passes short `timeout` args for offline-safe, deterministic sweeps.
+- Next session: if user types just "continue", read this file and proceed to `Next steps` (item 1 onward) without asking.
 
 ## Repo state
 - Branch: `master`
-- Note: `git status` shows the entire project as staged A/untracked — this repo has NO commits yet. This checkpoint commit will be the first.
-- Files changed this session: `omega/tools/__init__.py`, `omega/recon/__init__.py`, `omega/scope/__init__.py`, `omega/mcp/__init__.py`, `omega/http/__init__.py`, `tests/test_phase0_regressions.py` (new), `tests/test_harness.py` (new), `.opencode/SESSION_STATE.md` (new).
+- Last commit: `95fc105` — "wip: checkpoint 2026-09-15"
+- Uncommitted changes this session (to be committed as `wip: checkpoint 2026-09-16`): `omega/recon/__init__.py`, `omega/mcp/__init__.py`, `tests/test_harness.py`, `tests/test_phase0_regressions.py`, `.opencode/SESSION_STATE.md`.

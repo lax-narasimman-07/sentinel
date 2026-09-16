@@ -33,6 +33,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENV_PYTHON = os.path.join(PROJECT_ROOT, ".venv", "bin", "python")
 TIMEOUT = 30
 SCAN_TIMEOUT = 90
+TOTAL_HARNESS_TIMEOUT = 300  # overall ceiling for the full 41-tool sweep
 
 # Fast-failing targets keep the harness offline-safe and quick.
 STEALTH = "http://127.0.0.1:1"
@@ -54,12 +55,12 @@ HARNESS_CASES: list[tuple[str, dict, int]] = [
     ("omega_scope_check", {"engagement_id": "EID", "target": "example.com"}, TIMEOUT),
     ("omega_scope_list_rules", {"engagement_id": "EID"}, TIMEOUT),
     # Recon
-    ("omega_recon_subdomains", {"target": STEALTH_DOMAIN}, TIMEOUT),
-    ("omega_recon_probe", {"target": STEALTH}, TIMEOUT),
-    ("omega_recon_portscan", {"target": "127.0.0.1", "ports": "22"}, TIMEOUT),
-    ("omega_recon_fuzz", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt"}, TIMEOUT),
-    ("omega_recon_tech", {"target": STEALTH}, TIMEOUT),
-    ("omega_recon_crawl", {"target": STEALTH, "depth": 1}, TIMEOUT),
+    ("omega_recon_subdomains", {"target": STEALTH_DOMAIN, "timeout": 15}, TIMEOUT),
+    ("omega_recon_probe", {"target": STEALTH, "timeout": 15}, TIMEOUT),
+    ("omega_recon_portscan", {"target": "127.0.0.1", "ports": "22", "timeout": 20}, TIMEOUT),
+    ("omega_recon_fuzz", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt", "timeout": 15}, TIMEOUT),
+    ("omega_recon_tech", {"target": STEALTH, "timeout": 20}, TIMEOUT),
+    ("omega_recon_crawl", {"target": STEALTH, "depth": 1, "timeout": 20}, TIMEOUT),
     # Web security
     ("omega_web_headers", {"url": STEALTH}, TIMEOUT),
     ("omega_web_cors", {"url": STEALTH}, TIMEOUT),
@@ -118,36 +119,42 @@ async def fresh_session() -> AsyncGenerator[ClientSession, None]:
 @pytest.mark.asyncio
 async def test_all_registered_tools_have_structured_responses():
     """Every registered tool returns valid structured text and never wedges the server."""
-    async with fresh_session() as s:
-        # Create one engagement to substitute for EID placeholders.
-        eng = await s.call_tool("omega_engagement_create", {"name": "Harness Root", "mode": "local_lab"})
-        eid = json.loads(_extract(eng))["id"]
 
-        for name, args, timeout in HARNESS_CASES:
-            resolved = {k: (v if v != "EID" else eid) for k, v in args.items()}
-            started = time.monotonic()
-            r = await asyncio.wait_for(s.call_tool(name, resolved), timeout=timeout)
-            duration_ms = (time.monotonic() - started) * 1000
+    async def _inner():
+        async with fresh_session() as s:
+            eng = await s.call_tool("omega_engagement_create", {"name": "Harness Root", "mode": "local_lab"})
+            eid = json.loads(_extract(eng))["id"]
 
-            # 1. Content block correctness: response must be text, not code/markup
-            text_items = [item.text for item in r.content if isinstance(item, types.TextContent)]
-            assert text_items, f"{name}: returned no TextContent blocks -> {r.content!r}"
+            for i, (name, args, timeout) in enumerate(HARNESS_CASES):
+                resolved = {k: (v if v != "EID" else eid) for k, v in args.items()}
+                started = time.monotonic()
+                try:
+                    r = await asyncio.wait_for(s.call_tool(name, resolved), timeout=timeout)
+                    duration_ms = (time.monotonic() - started) * 1000
+                except asyncio.TimeoutError:
+                    duration_ms = (time.monotonic() - started) * 1000
+                    raise AssertionError(
+                        f"{name} timed out after {duration_ms:.0f}ms "
+                        f"(per-call limit: {timeout}s) — check adapter timeout handling"
+                    )
 
-            raw = _extract(r)
-            # 2. Non-empty raw response
-            assert raw.strip(), f"{name}: empty response after {duration_ms:.0f}ms"
-            # 3. Response is parseable structured data (JSON contract)
-            try:
-                parsed = json.loads(raw)
-                assert isinstance(parsed, (dict, list)), f"{name}: JSON not object/list"
-                # 4. Errors (whether is_error or embedded) carry a structured "error" key
-                if r.is_error:
-                    assert "error" in parsed or isinstance(parsed, list), f"{name}: MCP error without structured payload"
-            except json.JSONDecodeError:
-                assert not r.is_error, f"{name}: error response is not structured JSON: {raw[:200]}"
-        # 5. Server survives the whole sweep
-        after = await s.call_tool("omega_doctor")
-        assert not after.is_error
+                text_items = [item.text for item in r.content if isinstance(item, types.TextContent)]
+                assert text_items, f"{name}: returned no TextContent blocks -> {r.content!r}"
+
+                raw = _extract(r)
+                assert raw.strip(), f"{name}: empty response after {duration_ms:.0f}ms"
+                try:
+                    parsed = json.loads(raw)
+                    assert isinstance(parsed, (dict, list)), f"{name}: JSON not object/list"
+                    if r.is_error:
+                        assert "error" in parsed or isinstance(parsed, list), f"{name}: MCP error without structured payload"
+                except json.JSONDecodeError:
+                    assert not r.is_error, f"{name}: error response is not structured JSON: {raw[:200]}"
+
+            after = await s.call_tool("omega_doctor")
+            assert not after.is_error
+
+    await asyncio.wait_for(_inner(), timeout=TOTAL_HARNESS_TIMEOUT)
 
 
 @pytest.mark.asyncio
