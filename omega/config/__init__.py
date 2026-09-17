@@ -74,7 +74,7 @@ class LoggingConfig(BaseModel):
 
 class OmegaConfig(BaseModel):
     project_name: str = "OMEGA-CYBER-MCP"
-    version: str = "0.1.0"
+    version: str = "1.0.0"
     default_mode: EngagementMode = EngagementMode.ANALYSIS_ONLY
     base_dir: str = ""
     tools: dict[str, ToolConfig] = Field(default_factory=dict)

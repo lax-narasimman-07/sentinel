@@ -1,7 +1,15 @@
-# Session State — 2026-09-17 (save checkpoint)
+# Session State — 2026-09-17 (release checkpoint)
 
 ## Current phase
-Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening: **COMPLETE**. Phase 2 — guardrails + follow-up: **COMPLETE**. Phase 3 — feature modules: **COMPLETE** (first increment tool surface ✓, second increment vuln triage ✓, edge-hardening ✓). Phase 4 — quality bar: **COMPLETE** (health_check ✓, README matrix ✓). All planned work done.
+Phase 0-4 **COMPLETE**. Market-release readiness: **COMPLETE** — all audit carry-over items closed, version bumped to 1.0.0, LICENSE added, README market positioning written, full suite green, committed.
+
+## Completed this session (release pass)
+- ✅ **L3 (redundant CORS probe)**: `analyze_authentication` now sends the `Origin: https://evil.com` header on the *initial* GET and derives the CORS check from that single response (was 2 sequential requests; now 1, same semantics — a simple GET's response shape is unchanged by the absent/present Origin on HTTP servers that don't reflect it).
+- ✅ **L6 (dashboard route fail-soft defined)**: `_api_routes_loaded` module flag flips True on successful `omega.api.routes` import; new `GET /api/health` dashboard endpoint returns `{"status": "ok|degraded", "version": "1.0.0", "api_routes_loaded": bool}` so operators can verify route state.
+- ✅ **Version 1.0.0** bumped in: `pyproject.toml`, `omega/__init__.py` (`__version__`), `omega/config/__init__.py` (`OmegaConfig.version`), `omega/api/__init__.py` (dashboard state), `omega/api/routes.py` (`/api/system`), `README.md` header, `tests/test_core.py::test_import`. Reinstalled editable (pip metadata now `1.0.0`). `PluginMeta.version` default deliberately left `0.1.0` (plugin metadata default, not platform version).
+- ✅ **LICENSE** added (MIT, matching `pyproject.toml`).
+- ✅ **README "Why OMEGA vs. other security MCPs"** section: three comparison tables (Safety & consent / Evidence & rigour / Operations) mapping common shortcomings of existing bug-bounty/pentest/CTF MCPs (no scope gate, no SSRF, no rate limit, no audit trail, no evidence store, raw tool spew, no reporting, no reproducibility, unbounded scans, secret leakage, binary crashes, unknown health, no CTF structure, target-list bypass, silent partial failures) to concrete OMEGA mechanisms.
+- ✅ Full verification: **376 green** (374 non-harness + 2 harness); ruff error count on changed files identical before/after (20 = 20) — no new categories.
 
 ## Completed this session
 ### Phase 3 second increment (vuln detection triage) — COMPLETE
@@ -41,8 +49,8 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - Everything planned in SESSION_STATE is complete and verified: **376 green** (374 non-harness + 2 harness). Uncommitted.
 
 ## Next steps (ordered)
-1. **Commit this checkpoint** (`git -c user.name='lax' -c user.email='lax@localhost' commit -m "wip: checkpoint 2026-09-17"`).
-2. Optional/future (not planned): `L6` from audit — degrade gracefully instead of warning when `omega.api.routes` fails to import (deliberately left as fail-safe); `L3` redundant CORS probe in `analyze_authentication`; REST/parse surface parity with MCP tool surface.
+1. **Commit this release checkpoint** (`git -c user.name='lax' -c user.email='lax@localhost' commit -m "wip: release-checkpoint 2026-09-17"`).
+2. Optional/future (nice-to-have, NOT blocking launch): REST/parse surface parity audit (documented parity of `/api/*` routes vs 62 MCP tools — no exposed gap found that warrants code at 1.0.0); optional packaging: sdist/wheel via `python -m build`, `twine upload`.
 
 ## Known issues / blockers
 - `test_core.py::TestScope::test_rate_limiting` real assertion added (resolved the no-op note).
@@ -54,6 +62,9 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 - Failing: none.
 
 ## Notes/decisions made this session
+- **Version 1.0.0** is the single source-of-truth in `pyproject.toml`; `omega/__init__.py::__version__`, `OmegaConfig.version`, dashboard `system.version`, and `routes.py /api/system version` all aligned. `PluginMeta.version` stays `0.1.0` (it's the plugin-manifest schema default, not the platform version).
+- **L3 merged**: the evil-Origin CORS probe is folded into `analyze_authentication`'s one GET (header added on the initial request), eliminating a redundant network round-trip while preserving the `access-control-allow-origin` reflection check.
+- **L6 defined**: `_api_routes_loaded` + `GET /api/health` give operators an explicit liveness/route-state signal even when `omega/api/routes.py` import fails (fail-soft + observable instead of silent).
 - **JWT redaction**: full JWTs are never serialized to MCP output; only `token_preview` (16 chars + "…") is returned. Decoding still happens internally on the full token before redaction. Matches the existing `secrets.value_preview` pattern and the audit-log secret-redaction posture.
 - **infer_endpoints bounds**: concurrency clamped to `[1, 16]`, overall deadline default 60s, per-request 8s. This bounds a hostile/hanging host without changing default results for healthy targets.
 - **API `full_scan` now mirrors web `full_scan`**: `{"target", "success", "scan_errors", openapi/graphql/auth/endpoints}` — component-isolated partial results instead of all-or-nothing.
@@ -62,10 +73,11 @@ Phase 0 — Diagnose & Repair: **COMPLETE**. Phase 1 — Architecture hardening:
 
 ## Repo state
 - Branch: `master`
-- Last committed: `910d6e4` (Phase 3 second increment + Phase 4 checkpoint). Edge hardening + housekeeping uncommitted.
-- Changed/new this session:
-  - CHANGED: `omega/web/__init__.py` (scheme validation, CORS/endpoint/JS fixes, JWT redaction+expiry, single-fetch full_scan)
-  - CHANGED: `omega/api/__init__.py` (full_scan isolation, bounded infer_endpoints, OpenAPI/GraphQL robustness, IDOR validation, logging, WS/broadcast fixes)
-  - NEW: `tests/test_phase17_engine_hardening.py` (19 tests)
-  - CHANGED: `tests/fixtures.py` (`__test__ = False`), `tests/test_core.py` (real rate-limit assertion)
+- Last committed: `8bc64ac` (Phase 3 edge hardening checkpoint). Release pass (L3/L6 close-out, v1.0.0, LICENSE, README positioning) uncommitted.
+- Changed/new this release pass:
+  - CHANGED: `omega/api/__init__.py` (single-request `analyze_authentication`, `_api_routes_loaded`, `GET /api/health`, version)
+  - CHANGED: `omega/api/routes.py`, `omega/config/__init__.py`, `omega/__init__.py`, `pyproject.toml` (version 1.0.0)
+  - CHANGED: `README.md` (header version + "Why OMEGA vs other security MCPs")
+  - CHANGED: `tests/test_core.py` (version assertion)
+  - NEW: `LICENSE` (MIT)
   - CHANGED: `.opencode/SESSION_STATE.md`

@@ -145,7 +145,9 @@ class APISecurityEngine:
 
     async def analyze_authentication(self, url: str, timeout: float = 8) -> dict[str, Any]:
         """Analyze authentication mechanisms."""
-        resp = await self.http.get(url, timeout=timeout)
+        resp = await self.http.request(
+            "GET", url, headers={"Origin": "https://evil.com"}, timeout=timeout,
+        )
         headers = {k.lower(): v for k, v in resp.get("headers", {}).items()}
         body = resp.get("body", "")
         status = resp.get("status_code", 0)
@@ -171,8 +173,7 @@ class APISecurityEngine:
             if re.search(pattern, body, re.I):
                 auth_methods.append({"type": "body_reference", "name": name})
 
-        cors_resp = await self.http.request("GET", url, headers={"Origin": "https://evil.com"}, timeout=timeout)
-        acao = cors_resp.get("headers", {}).get("access-control-allow-origin", "")
+        acao = headers.get("access-control-allow-origin", "")
         if acao == "https://evil.com":
             findings.append({"type": "cors_auth_risk", "severity": "medium", "description": "CORS reflects evil origin - auth may be at risk"})
 
@@ -277,9 +278,11 @@ dashboard_app.add_middleware(
 )
 
 # Include the comprehensive API routes
+_api_routes_loaded = False
 try:
     from omega.api.routes import router as api_router
     dashboard_app.include_router(api_router)
+    _api_routes_loaded = True
 except Exception as e:
     logger.warning("Could not load API routes: %s: %s", type(e).__name__, e)
 
@@ -311,7 +314,7 @@ _dashboard_state: dict[str, Any] = {
     "logs": [],
     "system": {
         "status": "running",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "start_time": None,
         "tools_available": 0,
     },
@@ -323,6 +326,18 @@ async def index():
     """Serve the dashboard UI."""
     from omega.api.frontend import get_dashboard_html
     return HTMLResponse(content=get_dashboard_html())
+
+
+@dashboard_app.get("/api/health")
+async def api_health() -> JSONResponse:
+    """Lightweight liveness probe exposing whether the API routes loaded."""
+    return JSONResponse(
+        content={
+            "status": "ok" if _api_routes_loaded else "degraded",
+            "version": "1.0.0",
+            "api_routes_loaded": _api_routes_loaded,
+        }
+    )
 
 
 @dashboard_app.websocket("/ws")

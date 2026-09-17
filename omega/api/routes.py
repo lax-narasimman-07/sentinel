@@ -1191,7 +1191,7 @@ async def system_status():
     available = sum(1 for c in capabilities.values() if c.is_available)
     return {
         "status": "running",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "tools_available": available,
         "tools_total": len(capabilities),
         "timestamp": now_utc().isoformat(),

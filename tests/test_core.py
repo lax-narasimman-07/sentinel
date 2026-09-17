@@ -656,7 +656,7 @@ class TestMCPServer:
         from omega.mcp import OmegaServer
         server = OmegaServer()
         assert server.mcp.name == "omega-cyber-mcp"
-        assert server.mcp.version == "0.1.0"
+        assert server.mcp.version == "1.0.0"
 
     def test_tools_registered(self):
         from omega.mcp import OmegaServer

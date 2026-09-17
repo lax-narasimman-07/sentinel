@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omega-cyber-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "OMEGA-CYBER-MCP — Agentic Security Research Platform"
 readme = "README.md"
 license = {text = "MIT"}

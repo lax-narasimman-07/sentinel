@@ -2,7 +2,7 @@
 
 **Agentic Security Research Platform** -- An MCP server for CTF solving, authorized bug bounty research, penetration testing, web/API security testing, reverse engineering, and reconnaissance.
 
-Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
+Version 1.0.0 | Python 3.11+ | MCP SDK 2.0+
 
 ## Features
 
@@ -18,6 +18,51 @@ Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
 - **Vulnerability Triage** -- nuclei/nikto scan results auto-map to `Finding` records (severity-guided, scope-stamped, deduplicated) when an engagement is active
 - **Reporting** -- Markdown, HTML, and JSON report generation with findings and evidence
 - **60+ MCP Tools** -- Complete toolset exposed via MCP protocol
+
+## Why OMEGA vs. other security MCPs
+
+Most security MCP servers are thin wrappers around a CLI -- they give an agent
+`subprocess` power but no discipline. OMEGA inverts this: every network-reaching
+action passes through a safety, evidence, and correctness layer first. The table
+below maps the gaps commonly found in existing bug-bounty / pentest / CTF MCPs to
+the OMEGA counterpart.
+
+### Safety & consent
+
+| Shortcoming in typical security MCPs | OMEGA solution |
+|---|---|
+| No scope enforcement -- the agent can hit any target it can reach | **Deny-by-default scope gating** on every live-target entry point (MCP, executor, orchestrated scans, REST/UI). No in-scope rule, no request. |
+| No SSRF defense -- the agent will happily scan localhost/cloud metadata | **URL scheme + SSRF defenses** in `normalize_target_url`; IPv4/IPv6/private-host/DNS rebinding rules enforced before any request. |
+| No rate limiting -- agents fire bursts that can take a target down | **Per-target token buckets + global worker pool** (normal / aggressive / stealth policies). No DoS/stress tooling ships. |
+| No audit trail -- every action is invisible | **JSONL audit log + SQLite `authorizations` ledger**; every check, action, and denial is recorded with an attestation id. |
+| No concept of consent per-tool -- one blanket approval unlocks everything | Per-engagement **mode** (`bug_bounty`, `ctf`, `local_lab`, `analysis_only`, `lab`), per-rule include/exclude patterns, `analysis_only` enforces passive-only tools. |
+
+### Evidence & rigour
+
+| Shortcoming in typical security MCPs | OMEGA solution |
+|---|---|
+| Findings live only in the agent's chat context and vanish | **Immutable evidence records** (`EvidenceEngine`) with dedup, stored in SQLite, queryable later. |
+| Raw tool spew is dumped on the agent with no structure | **Auto-triage pipeline**: nuclei / nikto results are mapped to `Finding` records with severity, CVE/OSVDB refs, scope stamping, and dedup. |
+| No reporting -- results can't be handed to a human | **Markdown / HTML / JSON reports** generated from findings + evidence + authorization section. |
+| No reproducibility -- each run re-does everything | **Recon cache** + engagement-scoped history; the platform stores what was tested, when, and why. |
+| Unbounded scans hang the agent (dozens of sequential probes, no deadline) | **Bounded concurrency + deadlines**: `infer_endpoints` caps 96 probes under a 60s overall limit; every component is isolated so one failure never kills a scan. |
+| Secrets (JWTs, tokens) leak back into the agent transcript | **`token_preview` redaction** -- full credentials are never serialized to MCP output. |
+
+### Operations
+
+| Shortcoming in typical security MCPs | OMEGA solution |
+|---|---|
+| Missing binary == crash or cryptic traceback | **Structured `BINARY_MISSING` responses**; `omega_tools_list`, `omega_doctor`, `omega_health_check` report per-tool availability. |
+| Unknown state -- is the server even healthy? | **`omega_health_check`** (DB/registry/cache/worker-pool → `ready|degraded`) + `omega /api/health` dashboard probe. |
+| No structure for CTF work -- flags, hints, hypotheses get lost | **CTF module**: challenges, hypothesis ledger, flag confirm/submit, ledger replay per challenge. |
+| No engagement/scoping model shared across tools | Every tool accepts `engagement_id`; one scope model gates recon, web, API, and orchestrated scans consistently. |
+| No cross-checking of target lists -- agent passes mixed targets | `ToolExecutor` authorizes **every** target in a list, not just the primary. |
+| Silent partial failures that corrupt results | `full_scan` returns `scan_errors` + `success` instead of all-or-nothing partial dicts. |
+
+**In one line:** existing MCPs give agents *hands*; OMEGA gives them *hands, a
+perimeter fence, a notepad, and a flight recorder* -- so they can do the work of a
+pentest/CTF/bug-bounty engagement without the destruction, the memory loss, or the
+legal exposure.
 
 ## Security Authorization Model
 
