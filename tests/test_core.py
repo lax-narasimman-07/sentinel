@@ -258,10 +258,15 @@ class TestScopeEngine:
     async def test_rate_limiting(self, scope, db):
         eng = Engagement(id=new_id(), name="Test", mode=EngagementMode.LOCAL_LAB, rate_limit_policy="stealth", created_at=now_utc(), updated_at=now_utc())
         await db.save_engagement(eng.model_dump())
+        results = []
         for _ in range(5):
-            await scope.enforce_rate_limit(eng.id, "target.com")
-        result = await scope.enforce_rate_limit(eng.id, "target.com")
-        assert result.allowed or not result.allowed  # Just check it doesn't crash
+            results.append(await scope.enforce_rate_limit(eng.id, "target.com"))
+        # Stealth = rps 1.0 / burst 3: a fresh bucket passes `burst` calls, then throttles.
+        assert results[0].allowed
+        assert results[1].allowed
+        assert results[2].allowed
+        assert not results[3].allowed  # burst exhausted before any meaningful refill
+        assert not results[4].allowed
 
     @pytest.mark.asyncio
     async def test_full_authorization_pipeline(self, scope, db):

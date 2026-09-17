@@ -167,6 +167,8 @@ fetch('/api/users', {
 class TestServer:
     """Threaded HTTP test server."""
 
+    __test__ = False  # pytest: never collect this helper as a test class
+
     def __init__(self, port: int = 0) -> None:
         self.port = port
         self._httpd: HTTPServer | None = None

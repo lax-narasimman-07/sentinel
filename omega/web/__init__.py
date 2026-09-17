@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
+import time
 from typing import Any
 from urllib.parse import urlparse, urljoin, parse_qs
 
@@ -15,14 +17,33 @@ from omega.core.schemas import new_id, now_utc
 logger = logging.getLogger("omega.web")
 
 
+_SAFE_URL_SCHEMES = re.compile(r"^(?:https?|wss?)://", re.IGNORECASE)
+_ANY_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+_DANGEROUS_SCHEMES = re.compile(
+    r"^(?:javascript|vbscript|data|file|about|chrome|chrome-extension):", re.IGNORECASE
+)
+
+
 def normalize_target_url(target: str) -> str:
-    """Normalize a bare host/domain/IP to a full URL, defaulting to http:// (local-first)."""
+    """Normalize a bare host/domain/IP to a full URL, defaulting to http:// (local-first).
+
+    Rejects non-http(s)/ws(s) schemes (``javascript:``, ``data:``, ``file:``, ...).
+    """
     target = (target or "").strip()
     if not target:
         return target
-    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", target):
+    if _SAFE_URL_SCHEMES.match(target):
         return target
+    if _DANGEROUS_SCHEMES.match(target) or _ANY_SCHEME.match(target):
+        raise ValueError(f"Unsupported URL scheme in target: {target[:64]!r}")
     return f"http://{target}"
+
+
+def _redact_token(token: str) -> str:
+    """Short preview of a credential for output — never leak the full token."""
+    if len(token) <= 16:
+        return token[:4] + "…"
+    return token[:16] + "…"
 
 
 class WebSecurityEngine:
@@ -76,6 +97,7 @@ class WebSecurityEngine:
             "url": url, "status_code": resp.get("status_code"),
             "security_headers": findings, "info_disclosure": info_disclosure,
             "all_headers": headers,
+            "body": resp.get("body", ""),
         }
 
     async def analyze_cors(self, url: str, engagement_id: str = "") -> dict[str, Any]:
@@ -83,13 +105,14 @@ class WebSecurityEngine:
         url = normalize_target_url(url)
         parsed = urlparse(url)
         origin = f"{parsed.scheme}://{parsed.netloc}"
+        hostname = parsed.hostname or parsed.netloc.split(":")[0]
 
         origins_to_test = [
             ("null", "null origin"),
             (origin, "same origin"),
             (f"{parsed.scheme}://evil.com", "external origin"),
             (f"{parsed.scheme}://evil-{parsed.netloc}", "prefix-similar origin"),
-            (f"{parsed.scheme}://{parsed.hostname}.evil.com", "subdomain of attacker"),
+            (f"{parsed.scheme}://{hostname}.evil.com", "subdomain of attacker"),
         ]
 
         results = []
@@ -178,13 +201,8 @@ class WebSecurityEngine:
             r'/api/[a-zA-Z0-9/_-]+',
             r'/v[0-9]+/[a-zA-Z0-9/_-]+',
             r'(?:GET|POST|PUT|DELETE|PATCH)\s+[\'"](/[^"\']*)',
-            r'["\']https?://[^"\']+["\']',
-            r'websocket[s]?://[^\s"\']+',
-            r'graphql',
-            r'\.graphql',
-            r'openapi\.json',
-            r'swagger',
-            r'schema\.json',
+            r'["\'](https?://[^"\']+)["\']',
+            r'(wss?://[^\s"\']+)',
         ]
 
         for pattern in patterns:
@@ -250,15 +268,17 @@ class WebSecurityEngine:
 
         endpoints = await self.extract_endpoints(js_url, body, engagement_id)
 
+        findings = [
+            {"type": "dom_xss_risk", "sinks": sinks, "sources": sources, "severity": "medium"} if sinks and sources else None,
+            {"type": "secret_in_js", "count": len(secrets), "severity": "high"} if secrets else None,
+        ]
+
         return {
             "url": js_url, "body_length": len(body),
             "secrets": secrets, "endpoints": endpoints.get("endpoints", []),
             "dom_sinks": sinks, "dom_sources": sources,
             "frameworks": frameworks,
-            "findings": [
-                {"type": "dom_xss_risk", "sinks": sinks, "sources": sources, "severity": "medium"} if sinks and sources else None,
-                {"type": "secret_in_js", "count": len(secrets), "severity": "high"} if secrets else None,
-            ],
+            "findings": [f for f in findings if f is not None],
         }
 
     async def analyze_jwt(self, url: str, engagement_id: str = "") -> dict[str, Any]:
@@ -282,14 +302,14 @@ class WebSecurityEngine:
                 jwt_tokens.append({"source": "header", "token": token})
 
         for jwt_info in jwt_tokens:
+            token = jwt_info["token"]
             try:
-                parts = jwt_info["token"].split(".")
-                import base64 as b64
+                parts = token.split(".")
                 padding = 4 - len(parts[1]) % 4
-                payload = b64.urlsafe_b64decode(parts[1] + "=" * padding)
+                payload = base64.urlsafe_b64decode(parts[1] + "=" * padding)
                 data = json.loads(payload)
 
-                jwt_info["header"] = json.loads(b64.urlsafe_b64decode(parts[0] + "=="))
+                jwt_info["header"] = json.loads(base64.urlsafe_b64decode(parts[0] + "=="))
                 jwt_info["payload"] = data
 
                 alg = jwt_info["header"].get("alg", "")
@@ -298,11 +318,17 @@ class WebSecurityEngine:
                 if alg in ("HS256", "HS384", "HS512"):
                     findings.append({"type": "jwt_symmetric", "severity": "info", "description": f"JWT uses symmetric algorithm: {alg}", "note": "Check for weak secret"})
 
-                if data.get("exp") and data["exp"] < 1000000000:
+                exp = data.get("exp")
+                if exp and isinstance(exp, (int, float)) and exp < time.time():
                     findings.append({"type": "jwt_expired", "severity": "info", "description": "JWT appears expired"})
 
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 - malformed token must not break analysis
+                logger.debug("JWT decode failed for %s: %s", jwt_info.get("source"), e)
+
+        # Never leak raw tokens to output — only redacted previews.
+        for jwt_info in jwt_tokens:
+            raw = jwt_info.pop("token", "")
+            jwt_info["token_preview"] = _redact_token(raw)
 
         return {"url": url, "jwt_tokens": jwt_tokens, "findings": findings}
 
@@ -379,10 +405,7 @@ class WebSecurityEngine:
         results["cors"] = await _safe("cors", self.analyze_cors(url, engagement_id))
         results["cookies"] = await _safe("cookies", self.analyze_cookies(url, engagement_id))
         results["technologies"] = await _safe("technologies", self.detect_technologies(url, engagement_id))
-        if results["headers"].get("status_code") == 200:
-            body = (await _safe("body_fetch", self.http.get(url))).get("body", "")
-        else:
-            body = ""
+        body = results["headers"].get("body", "") if results["headers"].get("status_code") == 200 else ""
         results["endpoints"] = await _safe("endpoints", self.extract_endpoints(url, body, engagement_id))
         results["success"] = not results["scan_errors"]
         return results
