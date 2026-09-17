@@ -44,6 +44,7 @@ STEALTH_DOMAIN = "invalid.invalid"
 HARNESS_CASES: list[tuple[str, dict, int]] = [
     # System / doctor
     ("omega_doctor", {}, TIMEOUT),
+    ("omega_health_check", {}, TIMEOUT),
     ("omega_tools_list", {}, TIMEOUT),
     ("omega_audit_log", {"engagement_id": "EID"}, TIMEOUT),
     # Engagement management

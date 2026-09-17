@@ -7,6 +7,11 @@ Covers the newly exposed tool families:
   - CTF toolkit:          resolve_hypothesis, add_note, add_artifact, hypothesis_ledger
   - Reporting:            hypotheses present in markdown and JSON reports
 
+Vuln triage (phase 3 second increment):
+  - nuclei parsed_output findings → Finding records via _triage_nuclei_findings
+  - nikto parsed_output vulnerabilities → Finding records via _triage_nikto_findings
+  - _run_recon auto-triages when engagement_id is present
+
 Assertions are scope-gating-first: active tools must deny under engagements
 without scope rules; passive tools must be permitted (never SCOPE_DENIED) in
 analysis_only mode. Execution paths are exercised against STEALTH targets or
@@ -28,6 +33,8 @@ from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from omega.agents import Orchestrator
+from omega.mcp import OmegaServer
+from omega.core.schemas import Severity, new_id, now_utc
 from omega.storage import Database
 
 if TYPE_CHECKING:
@@ -43,6 +50,7 @@ TIMEOUT = 40
 STEALTH = "http://127.0.0.1:1"
 
 NEW_TOOLS = [
+    "omega_health_check",
     "omega_web_jwt",
     "omega_web_tech",
     "omega_api_openapi",
@@ -287,3 +295,310 @@ async def test_orchestrator_api_engine_wired():
                 server.stop()
         finally:
             await db.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Vuln triage — nuclei/nikto → Finding records
+# ═══════════════════════════════════════════════════════════════════════════
+
+SAMPLE_NUCLEI_PARSED = {
+    "findings": [
+        {
+            "template_id": "cves/2021/CVE-2021-44228",
+            "name": "Log4j RCE",
+            "severity": "critical",
+            "matched_at": "http://target.example.com:8080/api",
+            "type": "http",
+            "matcher_name": "log4j",
+            "curl_command": "curl -X GET http://target.example.com/api",
+        },
+        {
+            "template_id": "misconfiguration/directory-listing",
+            "name": "Directory Listing Enabled",
+            "severity": "medium",
+            "matched_at": "http://target.example.com/files/",
+            "type": "http",
+            "matcher_name": "",
+            "curl_command": "",
+        },
+        {
+            "template_id": "technologies/wordpress",
+            "name": "WordPress Detected",
+            "severity": "info",
+            "matched_at": "http://target.example.com/",
+            "type": "http",
+            "matcher_name": "",
+            "curl_command": "",
+        },
+    ],
+    "severity_counts": {"critical": 1, "medium": 1, "info": 1},
+}
+
+SAMPLE_NIKTO_PARSED = {
+    "vulnerabilities": [
+        {"finding": "OSVDB-3092: /admin/: This might be interesting...", "source": "nikto"},
+        {"finding": "CVE-2021-41773: Path traversal in Apache", "source": "nikto"},
+        {"info": "+ Server: Apache/2.4.41"},
+        {"finding": "Retrieved x-powered-by header: PHP/7.4.3", "source": "nikto"},
+    ],
+    "server_info": {"server": "Apache/2.4.41"},
+}
+
+
+@pytest.mark.asyncio
+async def test_triage_nuclei_findings_creates_records():
+    """_triage_nuclei_findings maps parsed findings to Finding records with correct severity."""
+    with tempfile.TemporaryDirectory(prefix="omega_triage_") as td:
+        db = Database(os.path.join(td, "test.db"))
+        await db.connect()
+        try:
+            orch = Orchestrator(db)
+            # Create engagement
+            eng = await orch.create_engagement("Triage Test", "pentest", "triage test")
+
+            server = OmegaServer()
+            server.db = db
+            server.orchestrator = orch
+            server._initialized = True
+
+            ids = await server._triage_nuclei_findings(
+                eng.id, "http://target.example.com", SAMPLE_NUCLEI_PARSED,
+            )
+            assert len(ids) == 3
+
+            findings = await orch.findings.list_findings(eng.id)
+            assert len(findings) == 3
+            titles = {f.title for f in findings}
+            assert "[nuclei] Log4j RCE" in titles
+            assert "[nuclei] Directory Listing Enabled" in titles
+            assert "[nuclei] WordPress Detected" in titles
+
+            # Severity mapping
+            by_title = {f.title: f for f in findings}
+            assert by_title["[nuclei] Log4j RCE"].severity == Severity.CRITICAL
+            assert by_title["[nuclei] Directory Listing Enabled"].severity == Severity.MEDIUM
+            assert by_title["[nuclei] WordPress Detected"].severity == Severity.INFORMATIONAL
+
+            # Authorization stamping
+            for f in findings:
+                assert f.authorization_status in ("authorized", "not_in_scope", "unverified")
+
+            # References include nuclei template links
+            log4j = by_title["[nuclei] Log4j RCE"]
+            assert any("CVE-2021-44228" in r for r in log4j.references)
+
+            # Technical details
+            assert log4j.technical_details["template_id"] == "cves/2021/CVE-2021-44228"
+            assert log4j.tool_sources == ["nuclei"]
+        finally:
+            await db.close()
+
+
+@pytest.mark.asyncio
+async def test_triage_nikto_findings_creates_records():
+    """_triage_nikto_findings maps OSVDB/CVE vulns to Finding records."""
+    with tempfile.TemporaryDirectory(prefix="omega_triage_") as td:
+        db = Database(os.path.join(td, "test.db"))
+        await db.connect()
+        try:
+            orch = Orchestrator(db)
+            eng = await orch.create_engagement("Nikto Triage", "pentest", "triage test")
+
+            server = OmegaServer()
+            server.db = db
+            server.orchestrator = orch
+            server._initialized = True
+
+            ids = await server._triage_nikto_findings(
+                eng.id, "http://target.example.com", SAMPLE_NIKTO_PARSED,
+            )
+            # Only vulns with source="nikto" should be triaged; info line without nikto source is skipped
+            assert len(ids) == 3
+
+            findings = await orch.findings.list_findings(eng.id)
+            assert len(findings) == 3
+
+            # OSVDB reference
+            osvdb_finding = [f for f in findings if "OSVDB-3092" in f.title][0]
+            assert any("osvdb.org" in r for r in osvdb_finding.references)
+
+            # CVE reference
+            cve_finding = [f for f in findings if "CVE-2021-41773" in f.title][0]
+            assert "CVE-2021-41773" in cve_finding.references
+
+            # Tool source
+            for f in findings:
+                assert f.tool_sources == ["nikto"]
+        finally:
+            await db.close()
+
+
+@pytest.mark.asyncio
+async def test_triage_skipped_without_engagement_id():
+    """_triage methods return empty list when no engagement_id is provided."""
+    with tempfile.TemporaryDirectory(prefix="omega_triage_") as td:
+        db = Database(os.path.join(td, "test.db"))
+        await db.connect()
+        try:
+            orch = Orchestrator(db)
+            server = OmegaServer()
+            server.db = db
+            server.orchestrator = orch
+            server._initialized = True
+
+            ids = await server._triage_nuclei_findings("", "http://x.com", SAMPLE_NUCLEI_PARSED)
+            assert ids == []
+        finally:
+            await db.close()
+
+
+@pytest.mark.asyncio
+async def test_run_recon_includes_triaged_findings():
+    """_run_recon auto-triages nuclei findings when engagement_id is present."""
+    with tempfile.TemporaryDirectory(prefix="omega_triage_") as td:
+        db = Database(os.path.join(td, "test.db"))
+        await db.connect()
+        try:
+            orch = Orchestrator(db)
+            eng = await orch.create_engagement("RunRecon Triage", "ctf", "")
+
+            server = OmegaServer()
+            server.db = db
+            server.orchestrator = orch
+            server._initialized = True
+
+            # Create a fake adapter that returns nuclei-like parsed_output
+            class FakeNucleiAdapter:
+                def name(self) -> str: return "nuclei"
+                def version(self) -> str: return "test"
+                async def execute(self, request):
+                    from omega.core.schemas import ToolResult
+                    return ToolResult(
+                        id=new_id(), tool_name="nuclei", success=True,
+                        raw_output="test", parsed_output=SAMPLE_NUCLEI_PARSED,
+                        normalized_output={"assets": []},
+                        target=request.target,
+                        created_at=now_utc(), updated_at=now_utc(),
+                    )
+
+            result_json = await server._run_recon(
+                FakeNucleiAdapter(), "nuclei", "http://target.example.com",
+                eng.id, "active",
+            )
+            result = json.loads(result_json)
+            assert result["success"] is True
+            assert len(result["triaged_findings"]) == 3
+
+            # Findings actually in the DB
+            findings = await orch.findings.list_findings(eng.id)
+            assert len(findings) == 3
+        finally:
+            await db.close()
+
+
+@pytest.mark.asyncio
+async def test_run_recon_no_triage_without_engagement():
+    """_run_recon does NOT triage when engagement_id is empty."""
+    with tempfile.TemporaryDirectory(prefix="omega_triage_") as td:
+        db = Database(os.path.join(td, "test.db"))
+        await db.connect()
+        try:
+            orch = Orchestrator(db)
+            server = OmegaServer()
+            server.db = db
+            server.orchestrator = orch
+            server._initialized = True
+
+            class FakeNucleiAdapter:
+                def name(self) -> str: return "nuclei"
+                def version(self) -> str: return "test"
+                async def execute(self, request):
+                    from omega.core.schemas import ToolResult
+                    return ToolResult(
+                        id=new_id(), tool_name="nuclei", success=True,
+                        raw_output="test", parsed_output=SAMPLE_NUCLEI_PARSED,
+                        normalized_output={"assets": []},
+                        target=request.target,
+                        created_at=now_utc(), updated_at=now_utc(),
+                    )
+
+            result_json = await server._run_recon(
+                FakeNucleiAdapter(), "nuclei", "http://target.example.com",
+                "", "active",
+            )
+            result = json.loads(result_json)
+            assert result["triaged_findings"] == []
+        finally:
+            await db.close()
+
+
+@pytest.mark.asyncio
+async def test_triage_deduplicates():
+    """Duplicate findings (same title + endpoint) get marked as DUPLICATE."""
+    with tempfile.TemporaryDirectory(prefix="omega_triage_") as td:
+        db = Database(os.path.join(td, "test.db"))
+        await db.connect()
+        try:
+            orch = Orchestrator(db)
+            eng = await orch.create_engagement("Dedup Triage", "pentest", "")
+
+            server = OmegaServer()
+            server.db = db
+            server.orchestrator = orch
+            server._initialized = True
+
+            dup_parsed = {
+                "findings": [
+                    {
+                        "template_id": "misconfig/x",
+                        "name": "Test Finding",
+                        "severity": "low",
+                        "matched_at": "http://t.com/a",
+                        "type": "http",
+                        "matcher_name": "",
+                        "curl_command": "",
+                    },
+                    {
+                        "template_id": "misconfig/x",
+                        "name": "Test Finding",
+                        "severity": "low",
+                        "matched_at": "http://t.com/a",
+                        "type": "http",
+                        "matcher_name": "",
+                        "curl_command": "",
+                    },
+                ],
+                "severity_counts": {"low": 2},
+            }
+            ids = await server._triage_nuclei_findings(eng.id, "http://t.com", dup_parsed)
+            assert len(ids) == 2
+
+            findings = await orch.findings.list_findings(eng.id)
+            from omega.core.schemas import ValidationStatus
+            statuses = [f.validation_status for f in findings]
+            assert ValidationStatus.DUPLICATE in statuses
+            assert ValidationStatus.CANDIDATE in statuses
+        finally:
+            await db.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 4 — omega_health_check
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_health_check_reports_status():
+    """omega_health_check returns structured health with DB + tool registrations."""
+    async with fresh_server() as s:
+        r = await _call(s, "omega_health_check", {})
+        data = _json(r)
+        assert data["status"] in ("ready", "degraded")
+        assert data["database"] == "connected"
+        assert data["registry_size"] > 0
+        assert isinstance(data["tools"]["installed"], list)
+        assert isinstance(data["tools"]["missing"], list)
+        # Core tool set is always reported
+        all_tools = set(data["tools"]["installed"]) | set(data["tools"]["missing"])
+        assert "nmap" in all_tools
+        assert "nuclei" in all_tools

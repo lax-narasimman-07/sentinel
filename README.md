@@ -15,8 +15,9 @@ Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
 - **Evidence Pipeline** -- Immutable evidence records with automatic deduplication
 - **Hypothesis-Driven Testing** -- Structured vulnerability hypothesis lifecycle
 - **Asset Graph** -- In-memory + persistent graph for reasoning about discovered assets
+- **Vulnerability Triage** -- nuclei/nikto scan results auto-map to `Finding` records (severity-guided, scope-stamped, deduplicated) when an engagement is active
 - **Reporting** -- Markdown, HTML, and JSON report generation with findings and evidence
-- **30+ MCP Tools** -- Complete toolset exposed via MCP protocol
+- **60+ MCP Tools** -- Complete toolset exposed via MCP protocol
 
 ## Security Authorization Model
 
@@ -94,6 +95,27 @@ brew install nmap         # macOS
 # Tech fingerprinting
 apt install whatweb        # or brew install whatweb
 ```
+
+### External binaries matrix
+
+| Binary | OMEGA adapter (`omega_*` tool) | Risk | Purpose | Availability probe |
+|---|---|---|---|---|
+| `subfinder` | recon · `omega_recon_subdomains` | passive | Passive subdomain enumeration | `omega_tools_list` |
+| `httpx` | recon · `omega_recon_probe` | passive | Live-host probing, tech detection, titles | `omega_tools_list` |
+| `katana` | recon · `omega_recon_crawl` | passive | Web crawling + JS endpoint discovery | `omega_tools_list` |
+| `gospider` | recon · `omega_recon_webcrawl` | passive | Fast crawling, link/js/js_forms discovery | `omega_tools_list` |
+| `whatweb` | recon · `omega_recon_tech` | passive | Technology fingerprinting | `omega_tools_list` |
+| `wafw00f` | recon · `omega_recon_waf_detect` | passive | WAF / firewall fingerprinting | `omega_tools_list` |
+| `dnsx` | recon · `omega_recon_dns_lookup` | passive | DNS resolution & record enumeration | `omega_tools_list` |
+| `nmap` | recon · `omega_recon_portscan` | active | Port scanning, service + OS detection | `omega_tools_list` |
+| `naabu` | recon · `omega_recon_fastportscan` | active | Fast SYN port scanning | `omega_tools_list` |
+| `masscan` | recon · `omega_recon_port_rapid` | active | Internet-scale port scanning | `omega_tools_list` |
+| `ffuf` | recon · `omega_recon_fuzz` | active | Directory/endpoint fuzzing | `omega_tools_list` |
+| `gobuster` | recon · `omega_recon_dirbrute` | active | Directory + DNS brute-force | `omega_tools_list` |
+| `nuclei` | recon · `omega_recon_vuln_scan` | active | Template-based vulnerability scanning | `omega_tools_list` |
+| `nikto` | recon · `omega_recon_server_audit` | active | Web server vulnerability auditing | `omega_tools_list` |
+
+Behavior: missing binaries never crash the server — affected tools return a structured `BINARY_MISSING` response. `omega_doctor` and `omega_health_check` surface which binaries are present; `omega_tools_list` reports per-tool availability.
 
 ## Configuration
 

@@ -104,6 +104,108 @@ class OmegaServer:
         if not result.allowed:
             raise ToolError(ErrorCode.SCOPE_DENIED, f"Scope denied: {result.reason}")
 
+    _NUCLEI_SEVERITY_MAP: dict[str, str] = {
+        "critical": Severity.CRITICAL,
+        "high": Severity.HIGH,
+        "medium": Severity.MEDIUM,
+        "low": Severity.LOW,
+        "info": Severity.INFORMATIONAL,
+        "unknown": Severity.INFORMATIONAL,
+        "": Severity.INFORMATIONAL,
+    }
+
+    async def _triage_nuclei_findings(
+        self, engagement_id: str, target: str, parsed: dict[str, Any],
+    ) -> list[str]:
+        """Map nuclei parsed_output findings to FindingEngine records.
+
+        Returns list of created Finding IDs.
+        """
+        if not engagement_id:
+            return []
+        orch = self.orchestrator
+        assert orch
+        finding_ids: list[str] = []
+        for item in parsed.get("findings", []):
+            if item.get("raw"):
+                continue
+            sev_str = item.get("severity", "info").lower()
+            severity = self._NUCLEI_SEVERITY_MAP.get(sev_str, Severity.INFORMATIONAL)
+            title = item.get("name", "") or item.get("template_id", "") or "Nuclei finding"
+            endpoint = item.get("matched_at", "")
+            refs: list[str] = []
+            template_id = item.get("template_id", "")
+            if template_id:
+                refs.append(f"https://github.com/projectdiscovery/nuclei-templates/blob/master/{template_id}")
+            finding = Finding(
+                id=new_id(), engagement_id=engagement_id,
+                title=f"[nuclei] {title}",
+                severity=severity,
+                confidence=Confidence.MEDIUM,
+                affected_asset=target,
+                affected_endpoint=endpoint,
+                description=item.get("name", ""),
+                references=refs,
+                tool_sources=["nuclei"],
+                technical_details={
+                    "template_id": template_id,
+                    "matcher_name": item.get("matcher_name", ""),
+                    "curl_command": item.get("curl_command", ""),
+                },
+                created_at=now_utc(), updated_at=now_utc(),
+            )
+            saved = await orch.findings.create_finding(finding)
+            finding_ids.append(saved.id)
+        return finding_ids
+
+    async def _triage_nikto_findings(
+        self, engagement_id: str, target: str, parsed: dict[str, Any],
+    ) -> list[str]:
+        """Map nikto parsed_output vulnerabilities to FindingEngine records.
+
+        Returns list of created Finding IDs.
+        """
+        if not engagement_id:
+            return []
+        orch = self.orchestrator
+        assert orch
+        finding_ids: list[str] = []
+        for vuln in parsed.get("vulnerabilities", []):
+            text = vuln.get("finding", "") or vuln.get("info", "")
+            if not text or vuln.get("source") != "nikto":
+                continue
+            sev = Severity.MEDIUM
+            lower = text.lower()
+            if "critical" in lower or "high" in lower:
+                sev = Severity.HIGH
+            elif "low" in lower:
+                sev = Severity.LOW
+            refs = []
+            if "OSVDB" in text:
+                import re as _re
+                osvdb = _re.findall(r"OSVDB-(\d+)", text)
+                for o in osvdb:
+                    refs.append(f"http://osvdb.org/show/osvdb/{o}")
+            if "CVE" in text:
+                import re as _re
+                cves = _re.findall(r"(CVE-\d{4}-\d+)", text)
+                refs.extend(cves)
+            finding = Finding(
+                id=new_id(), engagement_id=engagement_id,
+                title=f"[nikto] {text[:120]}",
+                severity=sev,
+                confidence=Confidence.MEDIUM,
+                affected_asset=target,
+                affected_endpoint=target,
+                description=text,
+                references=refs,
+                tool_sources=["nikto"],
+                created_at=now_utc(), updated_at=now_utc(),
+            )
+            saved = await orch.findings.create_finding(finding)
+            finding_ids.append(saved.id)
+        return finding_ids
+
     async def _run_recon(
         self,
         adapter: Any,
@@ -122,6 +224,7 @@ class OmegaServer:
             parameters=parameters or {},
         )
         result = await adapter.execute(request)
+        triaged_finding_ids: list[str] = []
         if engagement_id and result.success:
             await orch.evidence.store_tool_output(
                 engagement_id, tool_name, adapter.version(), target,
@@ -140,10 +243,19 @@ class OmegaServer:
                     })
                 except Exception:  # noqa: BLE001 - asset ingestion is best-effort
                     logger.warning("Could not save %s asset for %s", asset.get("type"), tool_name)
+            if tool_name == "nuclei":
+                triaged_finding_ids = await self._triage_nuclei_findings(
+                    engagement_id, target, result.parsed_output,
+                )
+            elif tool_name == "nikto":
+                triaged_finding_ids = await self._triage_nikto_findings(
+                    engagement_id, target, result.parsed_output,
+                )
         return json.dumps({
             "success": result.success,
             "result": result.parsed_output,
             "assets": result.normalized_output.get("assets", []),
+            "triaged_findings": triaged_finding_ids,
             "error": result.error,
             "duration_ms": result.duration_ms,
         }, default=str)
@@ -1064,6 +1176,84 @@ class OmegaServer:
                 path = shutil.which(tool_name)
                 checks["tools"][tool_name] = {"installed": path is not None, "path": path}
             return json.dumps(checks, indent=2)
+
+        @mcp.tool(
+            name="omega_health_check",
+            description="Operational health: DB connectivity, cache, worker pool, tool registry readiness",
+            annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+        )
+        @guarded_tool()
+        async def health_check() -> str:
+            orch = server.orchestrator
+            assert orch
+            ready: dict[str, bool] = {}
+
+            # 1. Database connectivity
+            db_ok = False
+            try:
+                await orch.db.query("engagements", limit=1)
+                db_ok = True
+            except Exception:  # noqa: BLE001 - health reporting must never raise
+                db_ok = False
+            ready["database"] = db_ok
+
+            # 2. Tool registry / external binaries
+            try:
+                caps = await orch.registry.discover_all()
+                core_tools = {
+                    "nuclei", "nikto", "nmap", "subfinder", "httpx", "ffuf",
+                    "whatweb", "gobuster", "katana", "gospider", "masscan",
+                }
+                installed = sorted(
+                    name for name, cap in caps.items()
+                    if name in core_tools and cap.is_available
+                )
+                missing = sorted(
+                    name for name, cap in caps.items()
+                    if name in core_tools and not cap.is_available
+                )
+                ready["tool_registry"] = len(caps) > 0
+            except Exception:  # noqa: BLE001
+                installed, missing, caps = [], [], {}
+                ready["tool_registry"] = False
+
+            # 3. Cache availability (fail-open by design)
+            try:
+                from omega.core.cache import cache_get
+                probe = await cache_get("__health_probe__", 0)
+                ready["cache"] = True
+                cache_ok = probe is not None
+            except Exception:  # noqa: BLE001
+                ready["cache"] = False
+                cache_ok = False
+
+            # 4. Worker pool
+            try:
+                from omega.core.concurrency import get_worker_pool
+                pool = get_worker_pool()
+                ready["worker_pool"] = True
+                worker_capacity = pool.max_concurrent
+            except Exception:  # noqa: BLE001
+                ready["worker_pool"] = False
+                worker_capacity = 0
+
+            # Overall assessment
+            status = "ready" if all(ready.get(k) for k in ("database", "tool_registry", "worker_pool")) else "degraded"
+
+            return json.dumps({
+                "status": status,
+                "ready": ready,
+                "services": {
+                    "worker_pool_capacity": worker_capacity,
+                },
+                "tools": {
+                    "installed": installed,
+                    "missing": missing,
+                },
+                "registry_size": len(caps),
+                "database": "connected" if db_ok else "unavailable",
+                "cache": "available" if cache_ok else "empty/fail-open",
+            }, indent=2)
 
 
 def create_server(config: OmegaConfig | None = None) -> OmegaServer:
