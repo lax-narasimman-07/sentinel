@@ -11,10 +11,10 @@ import time
 
 import pytest
 
-from omega.config import OmegaConfig, RateLimitConfig, set_config
-from omega.core import concurrency
-from omega.core.concurrency import AsyncTokenBucket, WorkerPool, get_worker_pool, reset_concurrency, tool_bucket
-from omega.tools import ToolAdapter, ToolExecutionRequest, ToolResult
+from sentinel.config import SentinelConfig, RateLimitConfig, set_config
+from sentinel.core import concurrency
+from sentinel.core.concurrency import AsyncTokenBucket, WorkerPool, get_worker_pool, reset_concurrency, tool_bucket
+from sentinel.tools import ToolAdapter, ToolExecutionRequest, ToolResult
 
 # ── AsyncTokenBucket ─────────────────────────────────────────────────────────
 
@@ -83,8 +83,8 @@ class TestWorkerPool:
 class TestSingletons:
     async def test_get_worker_pool_shared_and_config_sized(self, monkeypatch) -> None:
         monkeypatch.setattr(concurrency, "_pool", None)
-        cfg = OmegaConfig(rate_limits=RateLimitConfig(max_concurrent=7))
-        monkeypatch.setattr("omega.config._config", cfg)
+        cfg = SentinelConfig(rate_limits=RateLimitConfig(max_concurrent=7))
+        monkeypatch.setattr("sentinel.config._config", cfg)
         pool = get_worker_pool()
         assert pool.max_concurrent == 7
         assert get_worker_pool() is pool
@@ -99,8 +99,8 @@ class TestSingletons:
 
     def test_tool_bucket_honors_config(self, monkeypatch) -> None:
         reset_concurrency()
-        cfg = OmegaConfig(rate_limits=RateLimitConfig(per_tool_rps=0.25, burst_size=4))
-        monkeypatch.setattr("omega.config._config", cfg)
+        cfg = SentinelConfig(rate_limits=RateLimitConfig(per_tool_rps=0.25, burst_size=4))
+        monkeypatch.setattr("sentinel.config._config", cfg)
         bucket = tool_bucket("gamma")
         assert bucket.rps == 0.25
         assert bucket.burst == 4
@@ -116,7 +116,7 @@ class EchoAdapter(ToolAdapter):
         return "1.0"
 
     def capabilities(self) -> object:
-        from omega.core.schemas import ToolCapability, ToolRiskLevel, new_id, now_utc
+        from sentinel.core.schemas import ToolCapability, ToolRiskLevel, new_id, now_utc
         return ToolCapability(
             id=new_id(), name=self.name(), version=self.version(), description="",
             risk_level=ToolRiskLevel.READ_ONLY, is_available=True,
@@ -130,10 +130,10 @@ class EchoAdapter(ToolAdapter):
 @pytest.mark.asyncio
 async def test_adapter_run_throttled_when_bucket_depleted(monkeypatch) -> None:
     reset_concurrency()
-    cfg = OmegaConfig(rate_limits=RateLimitConfig(
+    cfg = SentinelConfig(rate_limits=RateLimitConfig(
         enabled=True, per_tool_rps=0.0, burst_size=1, wait_seconds=0.1,
     ))
-    monkeypatch.setattr("omega.config._config", cfg)
+    monkeypatch.setattr("sentinel.config._config", cfg)
     adapter = EchoAdapter()
     bucket = tool_bucket("echo_adapter")
     assert await bucket.acquire(timeout=0.1) is True
@@ -146,10 +146,10 @@ async def test_adapter_run_throttled_when_bucket_depleted(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_adapter_run_proceeds_with_tokens(monkeypatch) -> None:
     reset_concurrency()
-    cfg = OmegaConfig(rate_limits=RateLimitConfig(
+    cfg = SentinelConfig(rate_limits=RateLimitConfig(
         enabled=True, per_tool_rps=3.0, burst_size=5, wait_seconds=0.5,
     ))
-    monkeypatch.setattr("omega.config._config", cfg)
+    monkeypatch.setattr("sentinel.config._config", cfg)
     adapter = EchoAdapter()
     stdout, stderr, rc, duration = await adapter._run_subprocess(["/bin/echo", "hi"])
     assert rc == 0
@@ -169,8 +169,8 @@ async def test_run_failure_maps_rate_limited(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_disabled_rate_limit_skips_throttling(monkeypatch) -> None:
     reset_concurrency()
-    cfg = OmegaConfig(rate_limits=RateLimitConfig(enabled=False))
-    monkeypatch.setattr("omega.config._config", cfg)
+    cfg = SentinelConfig(rate_limits=RateLimitConfig(enabled=False))
+    monkeypatch.setattr("sentinel.config._config", cfg)
     adapter = EchoAdapter()
     stdout, stderr, rc, duration = await adapter._run_subprocess(["/bin/echo", "hi"])
     assert rc == 0

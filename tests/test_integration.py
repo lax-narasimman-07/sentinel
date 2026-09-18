@@ -1,4 +1,4 @@
-"""End-to-end integration tests for OMEGA-CYBER-MCP.
+"""End-to-end integration tests for SENTINEL.
 
 Tests real workflows through the MCP protocol against a local test fixture server.
 Each test group uses a shared server fixture for efficiency.
@@ -33,9 +33,9 @@ TIMEOUT = 30
 def _server_params(tmpdir: str) -> StdioServerParameters:
     return StdioServerParameters(
         command=VENV_PYTHON,
-        args=["-m", "omega.mcp"],
+        args=["-m", "sentinel.mcp"],
         cwd=PROJECT_ROOT,
-        env={"OMEGA_BASE_DIR": tmpdir},
+        env={"SENTINEL_BASE_DIR": tmpdir},
     )
 
 
@@ -53,7 +53,7 @@ async def _call(session: ClientSession, tool: str, args: dict | None = None) -> 
 
 @asynccontextmanager
 async def fresh_server() -> AsyncGenerator[ClientSession, None]:
-    with tempfile.TemporaryDirectory(prefix="omega_integ_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="sentinel_integ_") as tmpdir:
         async with stdio_client(_server_params(tmpdir)) as streams:
             read, write = streams
             async with ClientSession(read, write) as session:
@@ -85,21 +85,21 @@ async def test_scope_to_graph_pipeline(base_url: str):
     """Scope → engagement → graph nodes → graph query → persistence."""
     async with fresh_server() as s:
         # Create engagement
-        r = await _call(s, "omega_engagement_create", {
+        r = await _call(s, "sentinel_engagement_create", {
             "name": "Pipeline Test", "mode": "local_lab",
         })
         eng = _json(r)
         eid = eng["id"]
 
         # Add scope rule
-        r = await _call(s, "omega_scope_add_rule", {
+        r = await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "include",
             "target_type": "domain", "pattern": "127.0.0.1",
         })
         assert _json(r)["success"]
 
         # Check scope
-        r = await _call(s, "omega_scope_check", {
+        r = await _call(s, "sentinel_scope_check", {
             "engagement_id": eid, "target": "127.0.0.1",
         })
         assert _json(r)["allowed"]
@@ -114,7 +114,7 @@ async def test_scope_to_graph_pipeline(base_url: str):
             ("url", f"{base_url}/"),
         ]
         for ntype, label in chain:
-            r = await _call(s, "omega_graph_add_node", {
+            r = await _call(s, "sentinel_graph_add_node", {
                 "engagement_id": eid, "node_type": ntype, "label": label,
             })
             assert not r.is_error
@@ -122,7 +122,7 @@ async def test_scope_to_graph_pipeline(base_url: str):
 
         # Add edges
         for i in range(len(nodes) - 1):
-            r = await _call(s, "omega_graph_add_edge", {
+            r = await _call(s, "sentinel_graph_add_edge", {
                 "engagement_id": eid,
                 "source_id": nodes[i]["id"],
                 "target_id": nodes[i + 1]["id"],
@@ -131,7 +131,7 @@ async def test_scope_to_graph_pipeline(base_url: str):
             assert not r.is_error
 
         # Query
-        r = await _call(s, "omega_graph_query", {
+        r = await _call(s, "sentinel_graph_query", {
             "engagement_id": eid, "node_type": "domain",
         })
         q = _json(r)
@@ -147,7 +147,7 @@ async def test_scope_to_graph_pipeline(base_url: str):
 async def test_web_headers_analysis(base_url: str):
     r = await fresh_server().__aenter__().__anext__() if False else None
     async with fresh_server() as s:
-        r = await _call(s, "omega_web_headers", {
+        r = await _call(s, "sentinel_web_headers", {
             "url": f"{base_url}/",
         })
         assert not r.is_error
@@ -158,7 +158,7 @@ async def test_web_headers_analysis(base_url: str):
 @pytest.mark.asyncio
 async def test_web_cors_analysis(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_web_cors", {
+        r = await _call(s, "sentinel_web_cors", {
             "url": f"{base_url}/cors-test",
         })
         assert not r.is_error
@@ -169,7 +169,7 @@ async def test_web_cors_analysis(base_url: str):
 @pytest.mark.asyncio
 async def test_web_cookies_analysis(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_web_cookies", {
+        r = await _call(s, "sentinel_web_cookies", {
             "url": f"{base_url}/cookies",
         })
         assert not r.is_error
@@ -180,7 +180,7 @@ async def test_web_cookies_analysis(base_url: str):
 @pytest.mark.asyncio
 async def test_web_endpoints_extraction(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_web_endpoints", {
+        r = await _call(s, "sentinel_web_endpoints", {
             "url": f"{base_url}/",
         })
         assert not r.is_error
@@ -194,7 +194,7 @@ async def test_web_endpoints_extraction(base_url: str):
 @pytest.mark.asyncio
 async def test_web_js_analyze(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_web_js_analyze", {
+        r = await _call(s, "sentinel_web_js_analyze", {
             "js_url": f"{base_url}/static/app.js",
         })
         assert not r.is_error
@@ -205,12 +205,12 @@ async def test_web_js_analyze(base_url: str):
 @pytest.mark.asyncio
 async def test_web_full_scan(base_url: str):
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Web Scan Test", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
-        r = await _call(s, "omega_web_full_scan", {
+        r = await _call(s, "sentinel_web_full_scan", {
             "target": f"{base_url}",
             "engagement_id": eid,
         })
@@ -226,7 +226,7 @@ async def test_web_full_scan(base_url: str):
 @pytest.mark.asyncio
 async def test_http_get(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_http_request", {
+        r = await _call(s, "sentinel_http_request", {
             "method": "GET", "url": f"{base_url}/api/users",
         })
         assert not r.is_error
@@ -239,7 +239,7 @@ async def test_http_get(base_url: str):
 @pytest.mark.asyncio
 async def test_http_post_json(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_http_request", {
+        r = await _call(s, "sentinel_http_request", {
             "method": "POST",
             "url": f"{base_url}/login",
             "json_body": json.dumps({"username": "admin", "password": "password123"}),
@@ -254,7 +254,7 @@ async def test_http_post_json(base_url: str):
 @pytest.mark.asyncio
 async def test_http_404(base_url: str):
     async with fresh_server() as s:
-        r = await _call(s, "omega_http_request", {
+        r = await _call(s, "sentinel_http_request", {
             "method": "GET", "url": f"{base_url}/nonexistent",
         })
         assert not r.is_error
@@ -265,12 +265,12 @@ async def test_http_404(base_url: str):
 @pytest.mark.asyncio
 async def test_http_request_with_history(base_url: str):
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "HTTP History", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
-        r = await _call(s, "omega_http_request", {
+        r = await _call(s, "sentinel_http_request", {
             "method": "GET",
             "url": f"{base_url}/health",
             "engagement_id": eid,
@@ -278,7 +278,7 @@ async def test_http_request_with_history(base_url: str):
         assert not r.is_error
 
         # Verify the request was recorded
-        r = await _call(s, "omega_evidence_list", {"engagement_id": eid})
+        r = await _call(s, "sentinel_evidence_list", {"engagement_id": eid})
         assert not r.is_error
 
 
@@ -289,13 +289,13 @@ async def test_http_request_with_history(base_url: str):
 @pytest.mark.asyncio
 async def test_evidence_pipeline():
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Evidence Test", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
         # Create a hypothesis
-        h_r = await _call(s, "omega_hypothesis_create", {
+        h_r = await _call(s, "sentinel_hypothesis_create", {
             "engagement_id": eid,
             "category": "xss",
             "target": "test.local",
@@ -304,7 +304,7 @@ async def test_evidence_pipeline():
         assert not h_r.is_error
 
         # List evidence (empty initially)
-        e_r = await _call(s, "omega_evidence_list", {"engagement_id": eid})
+        e_r = await _call(s, "sentinel_evidence_list", {"engagement_id": eid})
         assert not e_r.is_error
         ev = _json(e_r)
         assert isinstance(ev, list)
@@ -318,13 +318,13 @@ async def test_evidence_pipeline():
 async def test_finding_full_lifecycle():
     """hypothesis → candidate → testing → validated → summary."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Finding Lifecycle", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
         # Create hypothesis
-        h_r = await _call(s, "omega_hypothesis_create", {
+        h_r = await _call(s, "sentinel_hypothesis_create", {
             "engagement_id": eid,
             "category": "sqli",
             "target": "app.local",
@@ -336,7 +336,7 @@ async def test_finding_full_lifecycle():
         hyp_id = hyp["id"]
 
         # Update hypothesis
-        u_r = await _call(s, "omega_hypothesis_update", {
+        u_r = await _call(s, "sentinel_hypothesis_update", {
             "hypothesis_id": hyp_id,
             "observation": "Parameter 'user' accepts single quotes without error",
             "confidence": "medium",
@@ -344,7 +344,7 @@ async def test_finding_full_lifecycle():
         assert not u_r.is_error
 
         # Create finding from hypothesis
-        f_r = await _call(s, "omega_finding_create", {
+        f_r = await _call(s, "sentinel_finding_create", {
             "engagement_id": eid,
             "title": "SQL Injection in /login",
             "severity": "high",
@@ -359,17 +359,17 @@ async def test_finding_full_lifecycle():
         fid = finding["id"]
 
         # Validate
-        v_r = await _call(s, "omega_finding_validate", {"finding_id": fid})
+        v_r = await _call(s, "sentinel_finding_validate", {"finding_id": fid})
         assert not v_r.is_error
 
         # List and check
-        l_r = await _call(s, "omega_finding_list", {"engagement_id": eid})
+        l_r = await _call(s, "sentinel_finding_list", {"engagement_id": eid})
         findings = _json(l_r)
         assert len(findings) >= 1
         assert any(f["title"] == "SQL Injection in /login" for f in findings)
 
         # Summary
-        s_r = await _call(s, "omega_finding_summary", {"engagement_id": eid})
+        s_r = await _call(s, "sentinel_finding_summary", {"engagement_id": eid})
         summary = _json(s_r)
         assert summary["total"] >= 1
         assert summary["by_severity"]["high"] >= 1
@@ -379,12 +379,12 @@ async def test_finding_full_lifecycle():
 async def test_finding_reject():
     """hypothesis → candidate → rejected."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Reject Test", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
-        f_r = await _call(s, "omega_finding_create", {
+        f_r = await _call(s, "sentinel_finding_create", {
             "engagement_id": eid,
             "title": "False positive finding",
             "severity": "low",
@@ -392,14 +392,14 @@ async def test_finding_reject():
         })
         fid = _json(f_r)["id"]
 
-        r_r = await _call(s, "omega_finding_reject", {
+        r_r = await _call(s, "sentinel_finding_reject", {
             "finding_id": fid,
             "reason": "False positive — tested and not reproducible",
         })
         assert not r_r.is_error
 
         # Verify in list
-        l_r = await _call(s, "omega_finding_list", {"engagement_id": eid})
+        l_r = await _call(s, "sentinel_finding_list", {"engagement_id": eid})
         findings = _json(l_r)
         rejected = [f for f in findings if f.get("validation_status") == "rejected"]
         assert len(rejected) >= 1
@@ -409,13 +409,13 @@ async def test_finding_reject():
 async def test_finding_deduplication():
     """Duplicate findings are detected."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Dedup Test", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
         # Create first finding
-        f1_r = await _call(s, "omega_finding_create", {
+        f1_r = await _call(s, "sentinel_finding_create", {
             "engagement_id": eid,
             "title": "XSS in search",
             "severity": "high",
@@ -425,7 +425,7 @@ async def test_finding_deduplication():
         f1 = _json(f1_r)
 
         # Create duplicate
-        f2_r = await _call(s, "omega_finding_create", {
+        f2_r = await _call(s, "sentinel_finding_create", {
             "engagement_id": eid,
             "title": "XSS in search",
             "severity": "high",
@@ -435,7 +435,7 @@ async def test_finding_deduplication():
         f2 = _json(f2_r)
 
         # List should contain both (dedup is advisory, not blocking)
-        l_r = await _call(s, "omega_finding_list", {"engagement_id": eid})
+        l_r = await _call(s, "sentinel_finding_list", {"engagement_id": eid})
         findings = _json(l_r)
         xss_findings = [f for f in findings if "XSS" in f.get("title", "")]
         assert len(xss_findings) >= 2
@@ -449,13 +449,13 @@ async def test_finding_deduplication():
 async def test_ctf_web_challenge():
     """Full CTF workflow: create → hypothesis → flag → confirm."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "CTF Test", "mode": "ctf",
         })
         eid = _json(eng_r)["id"]
 
         # Create challenge
-        ch_r = await _call(s, "omega_ctf_challenge_create", {
+        ch_r = await _call(s, "sentinel_ctf_challenge_create", {
             "engagement_id": eid,
             "name": "SQLi Login",
             "category": "web",
@@ -466,7 +466,7 @@ async def test_ctf_web_challenge():
         ch_id = ch["id"]
 
         # Add hypothesis
-        h_r = await _call(s, "omega_ctf_hypothesis", {
+        h_r = await _call(s, "sentinel_ctf_hypothesis", {
             "challenge_id": ch_id,
             "hypothesis": "SQL injection with ' OR 1=1 --",
             "test_plan": "Try authentication bypass",
@@ -476,21 +476,21 @@ async def test_ctf_web_challenge():
         assert hyp["status"] == "active"
 
         # Submit flag
-        sub_r = await _call(s, "omega_ctf_submit_flag", {
+        sub_r = await _call(s, "sentinel_ctf_submit_flag", {
             "challenge_id": ch_id, "flag": "flag{sqli_bypass}",
         })
         sub = _json(sub_r)
         assert sub["submitted"]
 
         # Confirm flag
-        conf_r = await _call(s, "omega_ctf_confirm_flag", {
+        conf_r = await _call(s, "sentinel_ctf_confirm_flag", {
             "challenge_id": ch_id, "flag": "flag{sqli_bypass}",
         })
         conf = _json(conf_r)
         assert conf["confirmed"]
 
         # Check ledger
-        led_r = await _call(s, "omega_ctf_ledger", {"challenge_id": ch_id})
+        led_r = await _call(s, "sentinel_ctf_ledger", {"challenge_id": ch_id})
         ledger = _json(led_r)
         all_hyps = (
             ledger.get("active", [])
@@ -501,7 +501,7 @@ async def test_ctf_web_challenge():
         assert ledger["solved"] is True
 
         # List challenges
-        list_r = await _call(s, "omega_ctf_challenge_list", {
+        list_r = await _call(s, "sentinel_ctf_challenge_list", {
             "engagement_id": eid,
         })
         challenges = _json(list_r)
@@ -512,12 +512,12 @@ async def test_ctf_web_challenge():
 async def test_ctf_failed_attempt():
     """Track failed flag attempts."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "CTF Failed", "mode": "ctf",
         })
         eid = _json(eng_r)["id"]
 
-        ch_r = await _call(s, "omega_ctf_challenge_create", {
+        ch_r = await _call(s, "sentinel_ctf_challenge_create", {
             "engagement_id": eid,
             "name": "Crypto Challenge",
             "category": "crypto",
@@ -525,7 +525,7 @@ async def test_ctf_failed_attempt():
         ch_id = _json(ch_r)["id"]
 
         # Add a hypothesis first so the ledger has something
-        await _call(s, "omega_ctf_hypothesis", {
+        await _call(s, "sentinel_ctf_hypothesis", {
             "challenge_id": ch_id,
             "hypothesis": "Brute force the flag",
             "test_plan": "Try common flag formats",
@@ -534,20 +534,20 @@ async def test_ctf_failed_attempt():
 
         # Submit wrong flags — confirm_flag always succeeds (engine tracks, doesn't validate)
         for wrong in ["flag{wrong1}", "flag{wrong2}", "flag{wrong3}"]:
-            r = await _call(s, "omega_ctf_submit_flag", {
+            r = await _call(s, "sentinel_ctf_submit_flag", {
                 "challenge_id": ch_id, "flag": wrong,
             })
             sub = _json(r)
             assert sub["submitted"]
             # confirm_flag marks the flag as confirmed (user is responsible for validation)
-            cr = await _call(s, "omega_ctf_confirm_flag", {
+            cr = await _call(s, "sentinel_ctf_confirm_flag", {
                 "challenge_id": ch_id, "flag": wrong,
             })
             conf = _json(cr)
             assert conf["confirmed"]
 
         # Ledger should show the hypothesis as active (never resolved via resolve_hypothesis)
-        led_r = await _call(s, "omega_ctf_ledger", {"challenge_id": ch_id})
+        led_r = await _call(s, "sentinel_ctf_ledger", {"challenge_id": ch_id})
         ledger = _json(led_r)
         all_hyps = (
             ledger.get("active", [])
@@ -565,7 +565,7 @@ async def test_ctf_failed_attempt():
 async def test_asset_graph_full_chain():
     """domain → subdomain → IP → port → service → URL → endpoint → finding."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Graph Chain", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
@@ -585,14 +585,14 @@ async def test_asset_graph_full_chain():
 
         node_ids = []
         for ntype, label in chain:
-            r = await _call(s, "omega_graph_add_node", {
+            r = await _call(s, "sentinel_graph_add_node", {
                 "engagement_id": eid, "node_type": ntype, "label": label,
             })
             assert not r.is_error
             node_ids.append(_json(r)["id"])
 
         for i in range(len(node_ids) - 1):
-            r = await _call(s, "omega_graph_add_edge", {
+            r = await _call(s, "sentinel_graph_add_edge", {
                 "engagement_id": eid,
                 "source_id": node_ids[i],
                 "target_id": node_ids[i + 1],
@@ -602,7 +602,7 @@ async def test_asset_graph_full_chain():
 
         # Query by type
         for ntype in ("domain", "ip", "url", "finding"):
-            r = await _call(s, "omega_graph_query", {
+            r = await _call(s, "sentinel_graph_query", {
                 "engagement_id": eid, "node_type": ntype,
             })
             q = _json(r)
@@ -612,16 +612,16 @@ async def test_asset_graph_full_chain():
 @pytest.mark.asyncio
 async def test_asset_graph_persistence():
     """Graph data persists across server restarts (via DB)."""
-    with tempfile.TemporaryDirectory(prefix="omega_persist_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="sentinel_persist_") as tmpdir:
         # Server 1: create data
         async with stdio_client(_server_params(tmpdir)) as streams:
             async with ClientSession(*streams) as s:
                 await asyncio.wait_for(s.initialize(), timeout=TIMEOUT)
-                eng_r = await _call(s, "omega_engagement_create", {
+                eng_r = await _call(s, "sentinel_engagement_create", {
                     "name": "Persist Test", "mode": "local_lab",
                 })
                 eid = _json(eng_r)["id"]
-                r = await _call(s, "omega_graph_add_node", {
+                r = await _call(s, "sentinel_graph_add_node", {
                     "engagement_id": eid, "node_type": "domain", "label": "persist.local",
                 })
                 assert not r.is_error
@@ -631,10 +631,10 @@ async def test_asset_graph_persistence():
             async with ClientSession(*streams) as s:
                 await asyncio.wait_for(s.initialize(), timeout=TIMEOUT)
                 # Need the engagement ID from DB
-                r = await _call(s, "omega_engagement_list")
+                r = await _call(s, "sentinel_engagement_list")
                 engagements = _json(r)
                 eid = engagements[0]["id"]
-                r = await _call(s, "omega_graph_query", {
+                r = await _call(s, "sentinel_graph_query", {
                     "engagement_id": eid, "node_type": "domain",
                 })
                 q = _json(r)
@@ -650,12 +650,12 @@ async def test_asset_graph_persistence():
 async def test_orchestrator_scan_analysis_only():
     """Orchestrator run_scan with analysis_only mode."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Orch Test", "mode": "analysis_only",
         })
         eid = _json(eng_r)["id"]
 
-        r = await _call(s, "omega_scan", {
+        r = await _call(s, "sentinel_scan", {
             "target": "example.com",
             "engagement_id": eid,
             "scan_type": "recon",
@@ -672,20 +672,20 @@ async def test_orchestrator_scan_analysis_only():
 @pytest.mark.asyncio
 async def test_report_markdown():
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "Report Test", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
         # Add a finding
-        await _call(s, "omega_finding_create", {
+        await _call(s, "sentinel_finding_create", {
             "engagement_id": eid,
             "title": "XSS in search",
             "severity": "high",
             "affected_asset": "app.local",
         })
 
-        r = await _call(s, "omega_report_generate", {
+        r = await _call(s, "sentinel_report_generate", {
             "engagement_id": eid,
             "format": "markdown",
         })
@@ -698,12 +698,12 @@ async def test_report_markdown():
 @pytest.mark.asyncio
 async def test_report_json():
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "JSON Report", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
-        r = await _call(s, "omega_report_generate", {
+        r = await _call(s, "sentinel_report_generate", {
             "engagement_id": eid,
             "format": "json",
         })
@@ -719,7 +719,7 @@ async def test_report_json():
 @pytest.mark.asyncio
 async def test_tools_list_shows_available():
     async with fresh_server() as s:
-        r = await _call(s, "omega_tools_list")
+        r = await _call(s, "sentinel_tools_list")
         tools = _json(r)
         assert isinstance(tools, dict)
         # nmap should be available on this system
@@ -730,7 +730,7 @@ async def test_tools_list_shows_available():
 @pytest.mark.asyncio
 async def test_doctor_checks():
     async with fresh_server() as s:
-        r = await _call(s, "omega_doctor")
+        r = await _call(s, "sentinel_doctor")
         data = _json(r)
         assert "tools" in data
         assert "python_version" in data
@@ -742,33 +742,33 @@ async def test_doctor_checks():
 async def test_scope_enforcement_bug_bounty():
     """Bug bounty mode requires scope rules, blocks unscoped targets."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "BB Scope", "mode": "bug_bounty",
         })
         eid = _json(eng_r)["id"]
 
         # No rules added — should deny
-        r = await _call(s, "omega_scope_check", {
+        r = await _call(s, "sentinel_scope_check", {
             "engagement_id": eid, "target": "any-random-host.com",
         })
         data = _json(r)
         assert data["allowed"] is False
 
         # Add a rule
-        await _call(s, "omega_scope_add_rule", {
+        await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "include",
             "target_type": "wildcard", "pattern": "*.target.com",
         })
 
         # In-scope target
-        r = await _call(s, "omega_scope_check", {
+        r = await _call(s, "sentinel_scope_check", {
             "engagement_id": eid, "target": "sub.target.com",
         })
         data = _json(r)
         assert data["allowed"]
 
         # Out-of-scope target
-        r = await _call(s, "omega_scope_check", {
+        r = await _call(s, "sentinel_scope_check", {
             "engagement_id": eid, "target": "evil.com",
         })
         data = _json(r)
@@ -779,13 +779,13 @@ async def test_scope_enforcement_bug_bounty():
 async def test_scope_enforcement_ctf():
     """CTF mode allows all targets by default."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "CTF Scope", "mode": "ctf",
         })
         eid = _json(eng_r)["id"]
 
         for target in ["challenge.local", "10.0.0.1", "any.domain.org"]:
-            r = await _call(s, "omega_scope_check", {
+            r = await _call(s, "sentinel_scope_check", {
                 "engagement_id": eid, "target": target,
             })
             data = _json(r)
@@ -796,23 +796,23 @@ async def test_scope_enforcement_ctf():
 async def test_scope_exclusion_in_ctf():
     """CTF mode with exclusion rule."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "CTF Exclude", "mode": "ctf",
         })
         eid = _json(eng_r)["id"]
 
-        await _call(s, "omega_scope_add_rule", {
+        await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "exclude",
             "target_type": "domain", "pattern": "forbidden.example.com",
         })
 
-        r = await _call(s, "omega_scope_check", {
+        r = await _call(s, "sentinel_scope_check", {
             "engagement_id": eid, "target": "forbidden.example.com",
         })
         data = _json(r)
         assert data["allowed"] is False
 
-        r = await _call(s, "omega_scope_check", {
+        r = await _call(s, "sentinel_scope_check", {
             "engagement_id": eid, "target": "allowed.example.com",
         })
         data = _json(r)
@@ -827,7 +827,7 @@ async def test_scope_exclusion_in_ctf():
 async def test_api_endpoint_discovery(base_url: str):
     """Discover API endpoints from the test app."""
     async with fresh_server() as s:
-        r = await _call(s, "omega_web_endpoints", {
+        r = await _call(s, "sentinel_web_endpoints", {
             "url": f"{base_url}/",
         })
         assert not r.is_error
@@ -848,14 +848,14 @@ async def test_api_authentication_differential(base_url: str):
     """Compare authenticated vs unauthenticated responses."""
     async with fresh_server() as s:
         # Unauthenticated
-        r1 = await _call(s, "omega_http_request", {
+        r1 = await _call(s, "sentinel_http_request", {
             "method": "GET", "url": f"{base_url}/api/secret",
         })
         resp1 = _json(r1)
         assert resp1["status_code"] == 403
 
         # With auth header
-        r2 = await _call(s, "omega_http_request", {
+        r2 = await _call(s, "sentinel_http_request", {
             "method": "GET",
             "url": f"{base_url}/api/users",
             "headers": json.dumps({"Authorization": "Bearer admin-token"}),
@@ -868,16 +868,16 @@ async def test_api_authentication_differential(base_url: str):
 async def test_api_idor_hypothesis(base_url: str):
     """Generate IDOR hypothesis from API responses."""
     async with fresh_server() as s:
-        eng_r = await _call(s, "omega_engagement_create", {
+        eng_r = await _call(s, "sentinel_engagement_create", {
             "name": "IDOR Test", "mode": "local_lab",
         })
         eid = _json(eng_r)["id"]
 
         # Access two items
-        r1 = await _call(s, "omega_http_request", {
+        r1 = await _call(s, "sentinel_http_request", {
             "method": "GET", "url": f"{base_url}/api/v1/items/1",
         })
-        r2 = await _call(s, "omega_http_request", {
+        r2 = await _call(s, "sentinel_http_request", {
             "method": "GET", "url": f"{base_url}/api/v1/items/2",
         })
 
@@ -887,7 +887,7 @@ async def test_api_idor_hypothesis(base_url: str):
         assert resp2["status_code"] == 200
 
         # Generate hypothesis
-        h_r = await _call(s, "omega_hypothesis_create", {
+        h_r = await _call(s, "sentinel_hypothesis_create", {
             "engagement_id": eid,
             "category": "idor",
             "target": f"127.0.0.1",

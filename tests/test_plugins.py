@@ -4,14 +4,14 @@ import pytest
 import time
 from unittest.mock import MagicMock
 
-from omega.core.schemas import new_id, now_utc
+from sentinel.core.schemas import new_id, now_utc
 
 
 # ===== Plugin System Tests =====
 
-from omega.plugins.base import Plugin, PluginMeta, PluginState
-from omega.plugins.registry import PluginRegistry
-from omega.plugins.loader import load_plugins
+from sentinel.plugins.base import Plugin, PluginMeta, PluginState
+from sentinel.plugins.registry import PluginRegistry
+from sentinel.plugins.loader import load_plugins
 
 
 class MockPlugin(Plugin):
@@ -286,7 +286,7 @@ def test_plugin_load_plugins():
 
 # ===== Crypto Engine Tests =====
 
-from omega.crypto import CryptoEngine
+from sentinel.crypto import CryptoEngine
 
 
 @pytest.mark.asyncio
@@ -511,7 +511,7 @@ async def test_crypto_rsa_analyze_suggestions():
 
 # ===== Forensics Engine Tests =====
 
-from omega.forensics import ForensicsEngine
+from sentinel.forensics import ForensicsEngine
 
 
 @pytest.mark.asyncio
@@ -648,7 +648,7 @@ async def test_forensics_timeline_empty():
 
 # ===== Web Security Engine Tests =====
 
-from omega.web import WebSecurityEngine
+from sentinel.web import WebSecurityEngine
 
 
 def test_web_security_engine_instantiation():
@@ -665,7 +665,7 @@ def test_web_security_engine_has_http():
 
 # ===== API Security Engine Tests =====
 
-from omega.api import APISecurityEngine
+from sentinel.api import APISecurityEngine
 
 
 def test_api_security_engine_instantiation():
@@ -682,7 +682,7 @@ def test_api_security_engine_has_http():
 
 # ===== Workflow Engine Tests =====
 
-from omega.workflows import (
+from sentinel.workflows import (
     WorkflowEngine,
     WorkflowDefinition,
     StepDefinition,
@@ -920,7 +920,7 @@ def test_workflow_definition_defaults():
 
 # ===== Telemetry Engine Tests =====
 
-from omega.telemetry import TelemetryEngine, ToolUsage, MetricPoint
+from sentinel.telemetry import TelemetryEngine, ToolUsage, MetricPoint
 
 
 def test_telemetry_timer():
@@ -1076,7 +1076,7 @@ def test_telemetry_tool_usage_fields():
 
 # ===== Browser Engine Tests =====
 
-from omega.browser import BrowserEngine
+from sentinel.browser import BrowserEngine
 
 
 def test_browser_engine_instantiation():

@@ -1,4 +1,4 @@
-# OMEGA-CYBER-MCP Testing Guide
+# SENTINEL Testing Guide
 
 ## Running All Tests
 
@@ -13,7 +13,7 @@ pytest tests/ -v
 pytest -v --tb=short
 
 # Run with coverage
-pytest --cov=omega --cov-report=term-missing
+pytest --cov=sentinel --cov-report=term-missing
 ```
 
 ## Test Categories
@@ -68,19 +68,19 @@ Validates the MCP protocol layer -- handshake, tool listing, and individual tool
 | `test_initialize_handshake` | MCP ping after initialization |
 | `test_list_tools_returns_expected` | All 30+ expected tools are registered |
 | `test_list_tools_not_empty` | Server reports > 0 tools |
-| `test_omega_doctor_returns_structured_output` | Doctor returns Python version, platform, tools |
-| `test_omega_engagement_create` | Engagement creation via MCP |
-| `test_omega_engagement_list` | Engagement listing via MCP |
-| `test_omega_scope_check_in_and_out_of_scope` | Scope check for in-scope and out-of-scope targets |
-| `test_omega_scope_add_rule_and_list` | Add and list scope rules |
-| `test_omega_tools_list` | Tool discovery listing |
-| `test_omega_hypothesis_create` | Hypothesis creation via MCP |
-| `test_omega_finding_create_and_list` | Finding create and list |
-| `test_omega_finding_summary` | Finding summary by severity |
-| `test_omega_graph_workflow` | Graph add node, edge, query |
-| `test_omega_ctf_challenge_workflow` | CTF challenge -> hypothesis -> flag -> confirm -> ledger |
-| `test_omega_audit_log` | Audit log retrieval |
-| `test_omega_report_generate` | Report generation via MCP |
+| `test_sentinel_doctor_returns_structured_output` | Doctor returns Python version, platform, tools |
+| `test_sentinel_engagement_create` | Engagement creation via MCP |
+| `test_sentinel_engagement_list` | Engagement listing via MCP |
+| `test_sentinel_scope_check_in_and_out_of_scope` | Scope check for in-scope and out-of-scope targets |
+| `test_sentinel_scope_add_rule_and_list` | Add and list scope rules |
+| `test_sentinel_tools_list` | Tool discovery listing |
+| `test_sentinel_hypothesis_create` | Hypothesis creation via MCP |
+| `test_sentinel_finding_create_and_list` | Finding create and list |
+| `test_sentinel_finding_summary` | Finding summary by severity |
+| `test_sentinel_graph_workflow` | Graph add node, edge, query |
+| `test_sentinel_ctf_challenge_workflow` | CTF challenge -> hypothesis -> flag -> confirm -> ledger |
+| `test_sentinel_audit_log` | Audit log retrieval |
+| `test_sentinel_report_generate` | Report generation via MCP |
 | `test_server_rejects_bad_tool_name` | Unknown tool returns error |
 
 ### Security Tests (`tests/test_security.py`)
@@ -178,7 +178,7 @@ server.stop()
 Tests use isolated temporary directories for each server instance:
 
 ```python
-env={"OMEGA_BASE_DIR": tmpdir}
+env={"SENTINEL_BASE_DIR": tmpdir}
 ```
 
 This ensures:
@@ -205,10 +205,10 @@ pip install -e ".[dev]"
   run: pip install -e ".[dev]"
 
 - name: Lint
-  run: ruff check omega/ tests/
+  run: ruff check sentinel/ tests/
 
 - name: Type check
-  run: mypy omega/
+  run: mypy sentinel/
 
 - name: Run tests
   run: pytest -v --tb=short
@@ -228,9 +228,9 @@ pip install -e ".[dev]"
 
 6. **Database cleanup** -- Each test creates a temporary directory that is automatically cleaned up by `tempfile.TemporaryDirectory`. No manual cleanup is needed.
 
-7. **Linting** -- Run `ruff check omega/ tests/` before committing. The project uses:
+7. **Linting** -- Run `ruff check sentinel/ tests/` before committing. The project uses:
    - Line length: 120
    - Target: Python 3.11
    - Rules: E, F, W, I, N, UP, S, B, A, C4, SIM, TCH
 
-8. **Type checking** -- Run `mypy omega/` with strict mode enabled.
+8. **Type checking** -- Run `mypy sentinel/` with strict mode enabled.

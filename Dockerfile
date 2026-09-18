@@ -16,18 +16,18 @@ FROM base AS app
 
 WORKDIR /app
 
-RUN useradd -m -s /bin/bash omega
+RUN useradd -m -s /bin/bash sentinel
 
-COPY --chown=omega:omega pyproject.toml README.md ./
-COPY --chown=omega:omega omega/ ./omega/
+COPY --chown=sentinel:sentinel pyproject.toml README.md ./
+COPY --chown=sentinel:sentinel sentinel/ ./sentinel/
 
 RUN pip install --no-cache-dir -e ".[browser]" || pip install --no-cache-dir -e .
 
-USER omega
+USER sentinel
 
 EXPOSE 8000 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/api/system || exit 1
 
-CMD ["python", "-m", "omega.cli", "start", "--all"]
+CMD ["python", "-m", "sentinel.cli", "start", "--all"]

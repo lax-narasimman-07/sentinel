@@ -1,8 +1,8 @@
-# OMEGA-CYBER-MCP Security
+# SENTINEL Security
 
 ## Security Model
 
-OMEGA-CYBER-MCP is a security research tool that must itself be secure. The system enforces defense-in-depth through multiple layers:
+SENTINEL is a security research tool that must itself be secure. The system enforces defense-in-depth through multiple layers:
 
 1. **Scope enforcement** -- Every action is validated against engagement scope rules
 2. **SSRF protection** -- Network destinations are validated before outbound requests
@@ -52,7 +52,7 @@ Each engagement mode defines a different security posture:
 
 ## SSRF Protection
 
-The `authorize_network_destination` method in `omega/scope/__init__.py:181` blocks requests to:
+The `authorize_network_destination` method in `sentinel/scope/__init__.py:181` blocks requests to:
 
 | Blocked Destination | Reason |
 |---|---|
@@ -72,7 +72,7 @@ All SSRF check results are audit-logged.
 
 ## Rate Limiting
 
-Implemented as a per-target token-bucket algorithm in `omega/scope/__init__.py:35`.
+Implemented as a per-target token-bucket algorithm in `sentinel/scope/__init__.py:35`.
 
 ### Rate Limit Policies
 
@@ -87,9 +87,9 @@ Implemented as a per-target token-bucket algorithm in `omega/scope/__init__.py:3
 Set via environment variables or engagement settings:
 
 ```bash
-OMEGA_RATE_POLICY=normal
-OMEGA_GLOBAL_RPS=10
-OMEGA_TARGET_RPS=5
+SENTINEL_RATE_POLICY=normal
+SENTINEL_GLOBAL_RPS=10
+SENTINEL_TARGET_RPS=5
 ```
 
 Per-engagement rate limits can be set via the `rate_limit_policy` field on engagements.
@@ -100,11 +100,11 @@ Rate limit violations are audit-logged with the target and reason.
 
 ### No Secrets in Logs
 - The server never logs authentication tokens, passwords, or API keys
-- `OMEGA_AUTH_TOKEN` is never included in tool output or reports
+- `SENTINEL_AUTH_TOKEN` is never included in tool output or reports
 - Environment variable values are not exposed through any tool
 
 ### No Secrets in Reports
-- `omega_report_generate` generates reports from findings and evidence
+- `sentinel_report_generate` generates reports from findings and evidence
 - Findings may contain descriptions of secret exposures (e.g., "API key found in JS") but never contain the actual secret values in the report content
 - Evidence records store content hashes, not raw secrets
 
@@ -115,7 +115,7 @@ Rate limit violations are audit-logged with the target and reason.
 
 ## Subprocess Security
 
-All external tool adapters (`omega/tools/__init__.py:70`) execute subprocesses with:
+All external tool adapters (`sentinel/tools/__init__.py:70`) execute subprocesses with:
 
 ### No Shell Injection
 ```python
@@ -182,7 +182,7 @@ Every security-relevant event is recorded in the `audit_log` table:
 ### Querying Audit Logs
 ```bash
 # Via MCP
-> Use omega_audit_log with engagement_id=<id>
+> Use sentinel_audit_log with engagement_id=<id>
 ```
 
 Audit logs are append-only and cannot be modified or deleted through the API.
@@ -199,7 +199,7 @@ Each engagement's data is isolated:
 
 1. **No TLS by default** -- The HTTP transport runs on localhost without TLS. Use a reverse proxy for remote access.
 
-2. **No authentication by default** -- Bearer token auth is available but disabled by default. Enable with `OMEGA_AUTH_ENABLED=true`.
+2. **No authentication by default** -- Bearer token auth is available but disabled by default. Enable with `SENTINEL_AUTH_ENABLED=true`.
 
 3. **Local database** -- SQLite is used by default. For production deployments with concurrent access, consider the PostgreSQL adapter (configurable via `DatabaseConfig`).
 

@@ -1,4 +1,4 @@
-"""Regression tests for omega start, CLI imports, and tool loading."""
+"""Regression tests for sentinel start, CLI imports, and tool loading."""
 
 import importlib
 import subprocess
@@ -8,29 +8,29 @@ import pytest
 
 
 class TestCLIImports:
-    def test_import_omega_cli(self):
-        import omega.cli
-        assert hasattr(omega.cli, "main")
+    def test_import_sentinel_cli(self):
+        import sentinel.cli
+        assert hasattr(sentinel.cli, "main")
 
-    def test_import_omega_tools(self):
-        from omega.tools import ToolAdapter, ToolRegistry, ToolExecutor, load_adapters
+    def test_import_sentinel_tools(self):
+        from sentinel.tools import ToolAdapter, ToolRegistry, ToolExecutor, load_adapters
         assert callable(load_adapters)
 
     def test_load_adapters_populates_registry(self):
-        from omega.tools import ToolRegistry, load_adapters
+        from sentinel.tools import ToolRegistry, load_adapters
         registry = ToolRegistry()
         load_adapters(registry)
         assert len(registry._adapters) > 0
 
     def test_tool_adapter_has_input_schema(self):
-        from omega.tools import ToolAdapter
-        from omega.recon import SubfinderAdapter
+        from sentinel.tools import ToolAdapter
+        from sentinel.recon import SubfinderAdapter
         adapter = SubfinderAdapter()
         schema = adapter.input_schema()
         assert isinstance(schema, dict)
 
     def test_all_recon_adapters_discovered(self):
-        from omega.tools import ToolRegistry, load_adapters
+        from sentinel.tools import ToolRegistry, load_adapters
         registry = ToolRegistry()
         load_adapters(registry)
         expected = [
@@ -42,20 +42,20 @@ class TestCLIImports:
             assert name in registry._adapters, f"{name} not loaded"
 
 
-class TestOmegaStart:
-    def test_omega_cli_module_invocation(self):
+class TestSentinelStart:
+    def test_sentinel_cli_module_invocation(self):
         result = subprocess.run(
-            [sys.executable, "-c", "from omega.cli import main; main(['--help'])"],
+            [sys.executable, "-c", "from sentinel.cli import main; main(['--help'])"],
             capture_output=True,
             text=True,
             timeout=15,
         )
         assert result.returncode == 0
-        assert "OMEGA" in result.stdout
+        assert "SENTINEL" in result.stdout
 
-    def test_omega_cli_start_help(self):
+    def test_sentinel_cli_start_help(self):
         result = subprocess.run(
-            [sys.executable, "-c", "from omega.cli import main; main(['start', '--help'])"],
+            [sys.executable, "-c", "from sentinel.cli import main; main(['start', '--help'])"],
             capture_output=True,
             text=True,
             timeout=15,
@@ -63,9 +63,9 @@ class TestOmegaStart:
         assert result.returncode == 0
         assert "dashboard" in result.stdout.lower() or "mcp" in result.stdout.lower()
 
-    def test_omega_cli_doctor(self):
+    def test_sentinel_cli_doctor(self):
         result = subprocess.run(
-            [sys.executable, "-c", "from omega.cli import main; main(['doctor'])"],
+            [sys.executable, "-c", "from sentinel.cli import main; main(['doctor'])"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -73,9 +73,9 @@ class TestOmegaStart:
         assert result.returncode == 0
         assert "Core" in result.stdout or "Tools" in result.stdout
 
-    def test_omega_cli_tools(self):
+    def test_sentinel_cli_tools(self):
         result = subprocess.run(
-            [sys.executable, "-c", "from omega.cli import main; main(['tools'])"],
+            [sys.executable, "-c", "from sentinel.cli import main; main(['tools'])"],
             capture_output=True,
             text=True,
             timeout=30,

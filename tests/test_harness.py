@@ -43,90 +43,90 @@ STEALTH_DOMAIN = "invalid.invalid"
 # engagement id created at session start.
 HARNESS_CASES: list[tuple[str, dict, int]] = [
     # System / doctor
-    ("omega_doctor", {}, TIMEOUT),
-    ("omega_health_check", {}, TIMEOUT),
-    ("omega_tools_list", {}, TIMEOUT),
-    ("omega_audit_log", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_doctor", {}, TIMEOUT),
+    ("sentinel_health_check", {}, TIMEOUT),
+    ("sentinel_tools_list", {}, TIMEOUT),
+    ("sentinel_audit_log", {"engagement_id": "EID"}, TIMEOUT),
     # Engagement management
-    ("omega_engagement_create", {"name": "Harness E", "mode": "local_lab"}, TIMEOUT),
-    ("omega_engagement_list", {}, TIMEOUT),
-    ("omega_engagement_get", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_engagement_create", {"name": "Harness E", "mode": "local_lab"}, TIMEOUT),
+    ("sentinel_engagement_list", {}, TIMEOUT),
+    ("sentinel_engagement_get", {"engagement_id": "EID"}, TIMEOUT),
     # Scope
-    ("omega_scope_add_rule", {"engagement_id": "EID", "rule_type": "include", "target_type": "domain", "pattern": "example.com"}, TIMEOUT),
-    ("omega_scope_check", {"engagement_id": "EID", "target": "example.com"}, TIMEOUT),
-    ("omega_scope_list_rules", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_scope_add_rule", {"engagement_id": "EID", "rule_type": "include", "target_type": "domain", "pattern": "example.com"}, TIMEOUT),
+    ("sentinel_scope_check", {"engagement_id": "EID", "target": "example.com"}, TIMEOUT),
+    ("sentinel_scope_list_rules", {"engagement_id": "EID"}, TIMEOUT),
     # Recon
-    ("omega_recon_subdomains", {"target": STEALTH_DOMAIN, "timeout": 15}, TIMEOUT),
-    ("omega_recon_probe", {"target": STEALTH, "timeout": 15}, TIMEOUT),
-    ("omega_recon_portscan", {"target": "127.0.0.1", "ports": "22", "timeout": 20}, TIMEOUT),
-    ("omega_recon_fuzz", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt", "timeout": 15}, TIMEOUT),
-    ("omega_recon_tech", {"target": STEALTH, "timeout": 20}, TIMEOUT),
-    ("omega_recon_crawl", {"target": STEALTH, "depth": 1, "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_subdomains", {"target": STEALTH_DOMAIN, "timeout": 15}, TIMEOUT),
+    ("sentinel_recon_probe", {"target": STEALTH, "timeout": 15}, TIMEOUT),
+    ("sentinel_recon_portscan", {"target": "127.0.0.1", "ports": "22", "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_fuzz", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt", "timeout": 15}, TIMEOUT),
+    ("sentinel_recon_tech", {"target": STEALTH, "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_crawl", {"target": STEALTH, "depth": 1, "timeout": 20}, TIMEOUT),
     # Web security
-    ("omega_web_headers", {"url": STEALTH}, TIMEOUT),
-    ("omega_web_cors", {"url": STEALTH}, TIMEOUT),
-    ("omega_web_cookies", {"url": STEALTH}, TIMEOUT),
-    ("omega_web_endpoints", {"url": STEALTH}, TIMEOUT),
-    ("omega_web_full_scan", {"target": STEALTH}, SCAN_TIMEOUT),
-    ("omega_web_js_analyze", {"js_url": STEALTH + "/app.js"}, TIMEOUT),
-    ("omega_web_jwt", {"url": STEALTH}, TIMEOUT),
-    ("omega_web_tech", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_web_headers", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_web_cors", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_web_cookies", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_web_endpoints", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_web_full_scan", {"target": STEALTH}, SCAN_TIMEOUT),
+    ("sentinel_web_js_analyze", {"js_url": STEALTH + "/app.js"}, TIMEOUT),
+    ("sentinel_web_jwt", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_web_tech", {"url": STEALTH}, TIMEOUT),
     # API security
-    ("omega_api_openapi", {"base_url": STEALTH}, TIMEOUT),
-    ("omega_api_graphql", {"base_url": STEALTH}, TIMEOUT),
-    ("omega_api_auth", {"url": STEALTH}, TIMEOUT),
-    ("omega_api_idor", {"url_pattern": STEALTH + "/users/{id}", "id_values": "1,2"}, TIMEOUT),
-    ("omega_api_introspection", {"graphql_url": STEALTH + "/graphql"}, TIMEOUT),
-    ("omega_api_full_scan", {"target": STEALTH}, SCAN_TIMEOUT),
+    ("sentinel_api_openapi", {"base_url": STEALTH}, TIMEOUT),
+    ("sentinel_api_graphql", {"base_url": STEALTH}, TIMEOUT),
+    ("sentinel_api_auth", {"url": STEALTH}, TIMEOUT),
+    ("sentinel_api_idor", {"url_pattern": STEALTH + "/users/{id}", "id_values": "1,2"}, TIMEOUT),
+    ("sentinel_api_introspection", {"graphql_url": STEALTH + "/graphql"}, TIMEOUT),
+    ("sentinel_api_full_scan", {"target": STEALTH}, SCAN_TIMEOUT),
     # Extended recon adapters
-    ("omega_recon_vuln_scan", {"target": STEALTH, "timeout": 20}, SCAN_TIMEOUT),
-    ("omega_recon_server_audit", {"target": STEALTH, "timeout": 20}, SCAN_TIMEOUT),
-    ("omega_recon_dirbrute", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt", "timeout": 20}, TIMEOUT),
-    ("omega_recon_webcrawl", {"target": STEALTH, "timeout": 20}, TIMEOUT),
-    ("omega_recon_port_rapid", {"target": "127.0.0.1", "ports": "22", "timeout": 20}, TIMEOUT),
-    ("omega_recon_fastportscan", {"target": "127.0.0.1", "timeout": 20}, TIMEOUT),
-    ("omega_recon_dns_lookup", {"target": STEALTH_DOMAIN, "timeout": 20}, TIMEOUT),
-    ("omega_recon_waf_detect", {"target": STEALTH, "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_vuln_scan", {"target": STEALTH, "timeout": 20}, SCAN_TIMEOUT),
+    ("sentinel_recon_server_audit", {"target": STEALTH, "timeout": 20}, SCAN_TIMEOUT),
+    ("sentinel_recon_dirbrute", {"target": STEALTH, "wordlist": "/nonexistent-wordlist.txt", "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_webcrawl", {"target": STEALTH, "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_port_rapid", {"target": "127.0.0.1", "ports": "22", "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_fastportscan", {"target": "127.0.0.1", "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_dns_lookup", {"target": STEALTH_DOMAIN, "timeout": 20}, TIMEOUT),
+    ("sentinel_recon_waf_detect", {"target": STEALTH, "timeout": 20}, TIMEOUT),
     # HTTP client
-    ("omega_http_request", {"method": "GET", "url": STEALTH}, TIMEOUT),
+    ("sentinel_http_request", {"method": "GET", "url": STEALTH}, TIMEOUT),
     # Orchestrated scan
-    ("omega_scan", {"target": STEALTH, "scan_type": "recon"}, SCAN_TIMEOUT),
+    ("sentinel_scan", {"target": STEALTH, "scan_type": "recon"}, SCAN_TIMEOUT),
     # Graph
-    ("omega_graph_add_node", {"engagement_id": "EID", "node_type": "domain", "label": "example.com"}, TIMEOUT),
-    ("omega_graph_add_edge", {"engagement_id": "EID", "source_id": "s", "target_id": "t", "edge_type": "hosts"}, TIMEOUT),
-    ("omega_graph_query", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_graph_add_node", {"engagement_id": "EID", "node_type": "domain", "label": "example.com"}, TIMEOUT),
+    ("sentinel_graph_add_edge", {"engagement_id": "EID", "source_id": "s", "target_id": "t", "edge_type": "hosts"}, TIMEOUT),
+    ("sentinel_graph_query", {"engagement_id": "EID"}, TIMEOUT),
     # Findings & hypotheses
-    ("omega_hypothesis_create", {"engagement_id": "EID", "category": "web", "target": "x", "hypothesis": "probe"}, TIMEOUT),
-    ("omega_hypothesis_update", {"hypothesis_id": "nonexistent"}, TIMEOUT),
-    ("omega_finding_create", {"engagement_id": "EID", "title": "Harness finding"}, TIMEOUT),
-    ("omega_finding_list", {"engagement_id": "EID"}, TIMEOUT),
-    ("omega_finding_validate", {"finding_id": "nonexistent"}, TIMEOUT),
-    ("omega_finding_reject", {"finding_id": "nonexistent"}, TIMEOUT),
-    ("omega_finding_summary", {"engagement_id": "EID"}, TIMEOUT),
-    ("omega_evidence_list", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_hypothesis_create", {"engagement_id": "EID", "category": "web", "target": "x", "hypothesis": "probe"}, TIMEOUT),
+    ("sentinel_hypothesis_update", {"hypothesis_id": "nonexistent"}, TIMEOUT),
+    ("sentinel_finding_create", {"engagement_id": "EID", "title": "Harness finding"}, TIMEOUT),
+    ("sentinel_finding_list", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_finding_validate", {"finding_id": "nonexistent"}, TIMEOUT),
+    ("sentinel_finding_reject", {"finding_id": "nonexistent"}, TIMEOUT),
+    ("sentinel_finding_summary", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_evidence_list", {"engagement_id": "EID"}, TIMEOUT),
     # CTF
-    ("omega_ctf_challenge_create", {"engagement_id": "EID", "name": "Harness C", "category": "crypto"}, TIMEOUT),
-    ("omega_ctf_challenge_list", {"engagement_id": "EID"}, TIMEOUT),
-    ("omega_ctf_hypothesis", {"challenge_id": "missing", "hypothesis": "probe"}, TIMEOUT),
-    ("omega_ctf_resolve_hypothesis",
+    ("sentinel_ctf_challenge_create", {"engagement_id": "EID", "name": "Harness C", "category": "crypto"}, TIMEOUT),
+    ("sentinel_ctf_challenge_list", {"engagement_id": "EID"}, TIMEOUT),
+    ("sentinel_ctf_hypothesis", {"challenge_id": "missing", "hypothesis": "probe"}, TIMEOUT),
+    ("sentinel_ctf_resolve_hypothesis",
      {"challenge_id": "a", "hypothesis_id": "b", "result": "c", "successful": False}, TIMEOUT),
-    ("omega_ctf_add_note", {"challenge_id": "missing", "note": "harness note"}, TIMEOUT),
-    ("omega_ctf_add_artifact", {"challenge_id": "missing", "artifact": "artifact"}, TIMEOUT),
-    ("omega_ctf_hypothesis_ledger", {"challenge_id": "missing"}, TIMEOUT),
-    ("omega_ctf_submit_flag", {"challenge_id": "missing", "flag": "FLAG{}"}, TIMEOUT),
-    ("omega_ctf_confirm_flag", {"challenge_id": "missing", "flag": "FLAG{}"}, TIMEOUT),
-    ("omega_ctf_ledger", {"challenge_id": "missing"}, TIMEOUT),
+    ("sentinel_ctf_add_note", {"challenge_id": "missing", "note": "harness note"}, TIMEOUT),
+    ("sentinel_ctf_add_artifact", {"challenge_id": "missing", "artifact": "artifact"}, TIMEOUT),
+    ("sentinel_ctf_hypothesis_ledger", {"challenge_id": "missing"}, TIMEOUT),
+    ("sentinel_ctf_submit_flag", {"challenge_id": "missing", "flag": "FLAG{}"}, TIMEOUT),
+    ("sentinel_ctf_confirm_flag", {"challenge_id": "missing", "flag": "FLAG{}"}, TIMEOUT),
+    ("sentinel_ctf_ledger", {"challenge_id": "missing"}, TIMEOUT),
     # Reporting
-    ("omega_report_generate", {"engagement_id": "EID", "format": "json"}, TIMEOUT),
+    ("sentinel_report_generate", {"engagement_id": "EID", "format": "json"}, TIMEOUT),
 ]
 
 
 def _server_params(tmpdir: str) -> StdioServerParameters:
     return StdioServerParameters(
         command=VENV_PYTHON,
-        args=["-m", "omega.mcp"],
+        args=["-m", "sentinel.mcp"],
         cwd=PROJECT_ROOT,
-        env={"OMEGA_BASE_DIR": tmpdir, "OMEGA_LOG_LEVEL": "WARNING"},
+        env={"SENTINEL_BASE_DIR": tmpdir, "SENTINEL_LOG_LEVEL": "WARNING"},
     )
 
 
@@ -136,7 +136,7 @@ def _extract(result: types.CallToolResult) -> str:
 
 @asynccontextmanager
 async def fresh_session() -> AsyncGenerator[ClientSession, None]:
-    with tempfile.TemporaryDirectory(prefix="omega_harness_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="sentinel_harness_") as tmpdir:
         async with stdio_client(_server_params(tmpdir)) as streams:
             read, write = streams
             async with ClientSession(read, write) as session:
@@ -150,7 +150,7 @@ async def test_all_registered_tools_have_structured_responses():
 
     async def _inner():
         async with fresh_session() as s:
-            eng = await s.call_tool("omega_engagement_create", {"name": "Harness Root", "mode": "local_lab"})
+            eng = await s.call_tool("sentinel_engagement_create", {"name": "Harness Root", "mode": "local_lab"})
             eid = json.loads(_extract(eng))["id"]
 
             for i, (name, args, timeout) in enumerate(HARNESS_CASES):
@@ -179,7 +179,7 @@ async def test_all_registered_tools_have_structured_responses():
                 except json.JSONDecodeError:
                     assert not r.is_error, f"{name}: error response is not structured JSON: {raw[:200]}"
 
-            after = await s.call_tool("omega_doctor")
+            after = await s.call_tool("sentinel_doctor")
             assert not after.is_error
 
     await asyncio.wait_for(_inner(), timeout=TOTAL_HARNESS_TIMEOUT)
@@ -190,5 +190,5 @@ async def test_server_survives_unknown_tool_then_healthy_tool():
     async with fresh_session() as s:
         r = await s.call_tool("totally_bogus_tool", {"x": "y"})
         assert r.is_error
-        r2 = await s.call_tool("omega_doctor")
+        r2 = await s.call_tool("sentinel_doctor")
         assert not r2.is_error

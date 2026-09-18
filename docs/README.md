@@ -1,4 +1,4 @@
-# OMEGA-CYBER-MCP
+# SENTINEL
 
 **Agentic Security Research Platform** -- An MCP server for CTF solving, authorized bug bounty research, penetration testing, web/API security testing, reverse engineering, and reconnaissance.
 
@@ -24,7 +24,7 @@ Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
 
 ```bash
 git clone <repository-url>
-cd omega-cyber-mcp
+cd sentinel
 
 # Create virtual environment
 python3.11 -m venv .venv
@@ -72,50 +72,50 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |---|---|---|
-| `OMEGA_BASE_DIR` | `~/.omega` | Data directory for database and workspaces |
-| `OMEGA_RATE_POLICY` | `normal` | Rate limit policy: `normal`, `aggressive`, `stealth` |
-| `OMEGA_GLOBAL_RPS` | `10` | Global requests per second |
-| `OMEGA_TARGET_RPS` | `5` | Per-target requests per second |
-| `OMEGA_SANDBOX` | `true` | Enable sandboxed execution |
-| `OMEGA_REQUIRE_SCOPE` | `true` | Require scope validation before actions |
-| `OMEGA_CTF_SKIP_SCOPE` | `true` | Skip scope checks in CTF mode |
-| `OMEGA_HOST` | `127.0.0.1` | Server bind address |
-| `OMEGA_PORT` | `8443` | Server port (HTTP mode) |
-| `OMEGA_AUTH_ENABLED` | `false` | Enable bearer token authentication |
-| `OMEGA_AUTH_TOKEN` | (empty) | Bearer token (required if auth enabled) |
-| `OMEGA_BROWSER_ENABLED` | `false` | Enable Playwright browser automation |
-| `OMEGA_BROWSER_HEADLESS` | `true` | Run browser in headless mode |
-| `OMEGA_LOG_LEVEL` | `INFO` | Log level |
+| `SENTINEL_BASE_DIR` | `~/.sentinel` | Data directory for database and workspaces |
+| `SENTINEL_RATE_POLICY` | `normal` | Rate limit policy: `normal`, `aggressive`, `stealth` |
+| `SENTINEL_GLOBAL_RPS` | `10` | Global requests per second |
+| `SENTINEL_TARGET_RPS` | `5` | Per-target requests per second |
+| `SENTINEL_SANDBOX` | `true` | Enable sandboxed execution |
+| `SENTINEL_REQUIRE_SCOPE` | `true` | Require scope validation before actions |
+| `SENTINEL_CTF_SKIP_SCOPE` | `true` | Skip scope checks in CTF mode |
+| `SENTINEL_HOST` | `127.0.0.1` | Server bind address |
+| `SENTINEL_PORT` | `8443` | Server port (HTTP mode) |
+| `SENTINEL_AUTH_ENABLED` | `false` | Enable bearer token authentication |
+| `SENTINEL_AUTH_TOKEN` | (empty) | Bearer token (required if auth enabled) |
+| `SENTINEL_BROWSER_ENABLED` | `false` | Enable Playwright browser automation |
+| `SENTINEL_BROWSER_HEADLESS` | `true` | Run browser in headless mode |
+| `SENTINEL_LOG_LEVEL` | `INFO` | Log level |
 
 ## Starting the Server
 
 ### MCP stdio mode (for MCP clients like OpenCode)
 
 ```bash
-python -m omega.mcp
+python -m sentinel.mcp
 ```
 
 ### HTTP mode
 
 ```bash
-python -m omega.mcp --transport http --host 127.0.0.1 --port 8443
+python -m sentinel.mcp --transport http --host 127.0.0.1 --port 8443
 ```
 
 ### CLI
 
 ```bash
 # Check system dependencies
-omega doctor
+sentinel doctor
 
 # List available tools
-omega tools
+sentinel tools
 
 # Inspect configuration
-omega inspect
+sentinel inspect
 
 # Start server
-omega serve --transport stdio
-omega serve --transport http --port 9000
+sentinel serve --transport stdio
+sentinel serve --transport http --port 9000
 ```
 
 ## OpenCode Configuration
@@ -125,14 +125,14 @@ Register the MCP server in your OpenCode config (`~/.config/opencode/opencode.js
 ```json
 {
   "mcpServers": {
-    "omega-cyber-mcp": {
+    "sentinel": {
       "command": "python",
-      "args": ["-m", "omega.mcp"],
-      "cwd": "/path/to/omega-cyber-mcp",
+      "args": ["-m", "sentinel.mcp"],
+      "cwd": "/path/to/sentinel",
       "env": {
-        "OMEGA_BASE_DIR": "~/.omega",
-        "OMEGA_RATE_POLICY": "normal",
-        "OMEGA_LOG_LEVEL": "INFO"
+        "SENTINEL_BASE_DIR": "~/.sentinel",
+        "SENTINEL_RATE_POLICY": "normal",
+        "SENTINEL_LOG_LEVEL": "INFO"
       }
     }
   }
@@ -145,10 +145,10 @@ Step-by-step walkthrough for solving a web CTF challenge:
 
 ```
 # 1. Create a CTF engagement
-> Use omega_engagement_create with name="CTF Round 1", mode="ctf"
+> Use sentinel_engagement_create with name="CTF Round 1", mode="ctf"
 
 # 2. Add the challenge
-> Use omega_ctf_challenge_create with:
+> Use sentinel_ctf_challenge_create with:
     engagement_id=<id from step 1>
     name="Login Bypass"
     category="web"
@@ -156,28 +156,28 @@ Step-by-step walkthrough for solving a web CTF challenge:
     port=8080
 
 # 3. Analyze the target
-> Use omega_web_headers with url="http://challenge.ctf.local:8080"
-> Use omega_web_cors with url="http://challenge.ctf.local:8080"
-> Use omega_recon_crawl with target="http://challenge.ctf.local:8080", depth=2
+> Use sentinel_web_headers with url="http://challenge.ctf.local:8080"
+> Use sentinel_web_cors with url="http://challenge.ctf.local:8080"
+> Use sentinel_recon_crawl with target="http://challenge.ctf.local:8080", depth=2
 
 # 4. Form a hypothesis
-> Use omega_ctf_hypothesis with:
+> Use sentinel_ctf_hypothesis with:
     challenge_id=<id from step 2>
     hypothesis="SQL injection on login form via username parameter"
     test_plan="Try ' OR 1=1 -- on /login endpoint"
 
 # 5. Test the hypothesis
-> Use omega_http_request with:
+> Use sentinel_http_request with:
     method="POST"
     url="http://challenge.ctf.local:8080/login"
     json_body='{"username":"admin'\'' OR 1=1 --","password":"x"}'
 
 # 6. Submit the flag
-> Use omega_ctf_submit_flag with challenge_id=<id>, flag="flag{sql1_inj3ct3d}"
+> Use sentinel_ctf_submit_flag with challenge_id=<id>, flag="flag{sql1_inj3ct3d}"
 
 # 7. Confirm and check ledger
-> Use omega_ctf_confirm_flag with challenge_id=<id>, flag="flag{sql1_inj3ct3d}"
-> Use omega_ctf_ledger with challenge_id=<id>
+> Use sentinel_ctf_confirm_flag with challenge_id=<id>, flag="flag{sql1_inj3ct3d}"
+> Use sentinel_ctf_ledger with challenge_id=<id>
 ```
 
 ## First Local Lab Example
@@ -186,68 +186,68 @@ Setting up a local security testing lab:
 
 ```
 # 1. Create a local lab engagement
-> Use omega_engagement_create with name="Home Lab", mode="local_lab"
+> Use sentinel_engagement_create with name="Home Lab", mode="local_lab"
 
 # 2. Add scope rules (optional in local_lab, but good practice)
-> Use omega_scope_add_rule with:
+> Use sentinel_scope_add_rule with:
     engagement_id=<id>
     rule_type="include"
     target_type="cidr"
     pattern="192.168.1.0/24"
 
 # 3. Run reconnaissance
-> Use omega_recon_subdomains with target="lab.internal", engagement_id=<id>
-> Use omega_recon_portscan with target="192.168.1.0/24", ports="1-1000", engagement_id=<id>
+> Use sentinel_recon_subdomains with target="lab.internal", engagement_id=<id>
+> Use sentinel_recon_portscan with target="192.168.1.0/24", ports="1-1000", engagement_id=<id>
 
 # 4. Probe live hosts
-> Use omega_recon_probe with target="192.168.1.10", engagement_id=<id>
+> Use sentinel_recon_probe with target="192.168.1.10", engagement_id=<id>
 
 # 5. Full web scan
-> Use omega_web_full_scan with target="192.168.1.10", engagement_id=<id>
+> Use sentinel_web_full_scan with target="192.168.1.10", engagement_id=<id>
 
 # 6. Generate report
-> Use omega_report_generate with engagement_id=<id>, format="markdown"
+> Use sentinel_report_generate with engagement_id=<id>, format="markdown"
 ```
 
 ## First Authorized Bug Bounty Example
 
 ```
 # 1. Create engagement
-> Use omega_engagement_create with:
+> Use sentinel_engagement_create with:
     name="TargetCo Bug Bounty"
     mode="bug_bounty"
     description="Authorized via HackerOne scope"
 
 # 2. Define scope (REQUIRED -- bug_bounty mode denies all by default)
-> Use omega_scope_add_rule with:
+> Use sentinel_scope_add_rule with:
     engagement_id=<id>, rule_type="include", target_type="wildcard",
     pattern="*.target.com", description="Program scope"
-> Use omega_scope_add_rule with:
+> Use sentinel_scope_add_rule with:
     engagement_id=<id>, rule_type="exclude", target_type="domain",
     pattern="staging.target.com", description="Out of scope"
 
 # 3. Verify scope
-> Use omega_scope_check with engagement_id=<id>, target="api.target.com"   # allowed
-> Use omega_scope_check with engagement_id=<id>, target="evil.com"         # denied
+> Use sentinel_scope_check with engagement_id=<id>, target="api.target.com"   # allowed
+> Use sentinel_scope_check with engagement_id=<id>, target="evil.com"         # denied
 
 # 4. Passive recon (always safe)
-> Use omega_recon_subdomains with target="target.com", engagement_id=<id>
+> Use sentinel_recon_subdomains with target="target.com", engagement_id=<id>
 
 # 5. Active testing (scope-validated)
-> Use omega_recon_portscan with target="api.target.com", engagement_id=<id>
-> Use omega_web_full_scan with target="https://api.target.com", engagement_id=<id>
+> Use sentinel_recon_portscan with target="api.target.com", engagement_id=<id>
+> Use sentinel_web_full_scan with target="https://api.target.com", engagement_id=<id>
 
 # 6. Track findings
-> Use omega_hypothesis_create with:
+> Use sentinel_hypothesis_create with:
     engagement_id=<id>, category="idor", target="api.target.com",
     hypothesis="IDOR on /api/v1/users/{id} -- sequential IDs exposed"
-> Use omega_finding_create with:
+> Use sentinel_finding_create with:
     engagement_id=<id>, title="IDOR on User Profiles", severity="high",
     affected_asset="api.target.com", affected_endpoint="/api/v1/users/{id}",
     cwe_id="CWE-639"
 
 # 7. Generate report
-> Use omega_report_generate with engagement_id=<id>, format="markdown"
+> Use sentinel_report_generate with engagement_id=<id>, format="markdown"
 ```
 
 ## Troubleshooting
@@ -262,17 +262,17 @@ python --version  # Must be 3.11+
 pip show mcp  # Must be >= 2.0.0
 
 # Run doctor
-python -m omega.mcp  # Then call omega_doctor tool
+python -m sentinel.mcp  # Then call sentinel_doctor tool
 ```
 
 ### Tools not found
 
 ```bash
 # Check which tools are installed
-omega tools
+sentinel tools
 
 # Or via MCP
-> Use omega_tools_list
+> Use sentinel_tools_list
 
 # Install missing tools (see installation section above)
 ```
@@ -283,17 +283,17 @@ CTF mode allows all targets by default. If you get scope errors:
 
 ```
 # Make sure engagement mode is "ctf", not "analysis_only"
-> Use omega_engagement_create with name="CTF", mode="ctf"
+> Use sentinel_engagement_create with name="CTF", mode="ctf"
 ```
 
 ### Database errors
 
 ```bash
 # Delete and recreate database
-rm ~/.omega/omega.db
+rm ~/.sentinel/sentinel.db
 
 # Or set a fresh base directory
-OMEGA_BASE_DIR=/tmp/omega-fresh python -m omega.mcp
+SENTINEL_BASE_DIR=/tmp/sentinel-fresh python -m sentinel.mcp
 ```
 
 ### Permission denied on tools
@@ -301,13 +301,13 @@ OMEGA_BASE_DIR=/tmp/omega-fresh python -m omega.mcp
 Some tools (nmap SYN scan) require root. Either:
 
 - Run the server with appropriate privileges
-- Use TCP connect scan: `omega_recon_portscan` with `scan_type="tcp"`
-- Use `omega_recon_subdomains` (passive, no root needed)
+- Use TCP connect scan: `sentinel_recon_portscan` with `scan_type="tcp"`
+- Use `sentinel_recon_subdomains` (passive, no root needed)
 
 ### Rate limiting too aggressive
 
 Adjust via environment variables:
 
 ```bash
-OMEGA_RATE_POLICY=relaxed OMEGA_GLOBAL_RPS=50 OMEGA_TARGET_RPS=20 python -m omega.mcp
+SENTINEL_RATE_POLICY=relaxed SENTINEL_GLOBAL_RPS=50 SENTINEL_TARGET_RPS=20 python -m sentinel.mcp
 ```

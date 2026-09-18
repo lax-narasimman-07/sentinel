@@ -1,9 +1,9 @@
 """Phase 2 guardrails — scope-gating hardening and authorization metadata.
 
 Tests:
-  1. omega_recon_probe: multi-target list with out-of-scope entry → SCOPE_DENIED.
-  2. omega_scan: analysis_only + active scan type → SCOPE_DENIED (mode guard).
-  3. omega_scan: engagement with no scope rules + active scan → SCOPE_DENIED (target guard).
+  1. sentinel_recon_probe: multi-target list with out-of-scope entry → SCOPE_DENIED.
+  2. sentinel_scan: analysis_only + active scan type → SCOPE_DENIED (mode guard).
+  3. sentinel_scan: engagement with no scope rules + active scan → SCOPE_DENIED (target guard).
   4. ToolExecutor: multi-target scope enforcement at the adapter level.
   5. FindingEngine.create_finding: authorization_status stamped when scope provided.
   6. FindingEngine.create_finding: defaults to 'unverified' when no scope.
@@ -26,7 +26,7 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from omega.core.schemas import (
+from sentinel.core.schemas import (
     Finding,
     ToolCapability,
     ToolExecutionRequest,
@@ -35,11 +35,11 @@ from omega.core.schemas import (
     new_id,
     now_utc,
 )
-from omega.findings import FindingEngine
-from omega.reporting import ReportEngine
-from omega.scope import ScopeEngine
-from omega.storage import Database
-from omega.tools import ToolAdapter, ToolExecutor, ToolRegistry
+from sentinel.findings import FindingEngine
+from sentinel.reporting import ReportEngine
+from sentinel.scope import ScopeEngine
+from sentinel.storage import Database
+from sentinel.tools import ToolAdapter, ToolExecutor, ToolRegistry
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -54,9 +54,9 @@ TIMEOUT = 30
 def _server_params(tmpdir: str) -> StdioServerParameters:
     return StdioServerParameters(
         command=VENV_PYTHON,
-        args=["-m", "omega.mcp"],
+        args=["-m", "sentinel.mcp"],
         cwd=PROJECT_ROOT,
-        env={"OMEGA_BASE_DIR": tmpdir},
+        env={"SENTINEL_BASE_DIR": tmpdir},
     )
 
 
@@ -74,7 +74,7 @@ async def _call(session: ClientSession, tool: str, args: dict | None = None) -> 
 
 @asynccontextmanager
 async def fresh_server() -> AsyncGenerator[ClientSession, None]:
-    with tempfile.TemporaryDirectory(prefix="omega_ph2_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="sentinel_ph2_") as tmpdir:
         async with stdio_client(_server_params(tmpdir)) as streams:
             read, write = streams
             async with ClientSession(read, write) as session:
@@ -101,13 +101,13 @@ async def test_recon_probe_multi_target_denies_out_of_scope():
     """When the targets list contains an out-of-scope host, the tool must
     deny before the adapter runs, even though the primary target is in scope."""
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "T2", "mode": "bug_bounty"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "T2", "mode": "bug_bounty"})
         eid = _json(eng)["id"]
-        await _call(s, "omega_scope_add_rule", {
+        await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "include",
             "target_type": "domain", "pattern": "in-scope.com",
         })
-        await assert_scope_denied(s, "omega_recon_probe", {
+        await assert_scope_denied(s, "sentinel_recon_probe", {
             "target": "in-scope.com",
             "targets": "in-scope.com\nattacker.com",
             "engagement_id": eid,
@@ -115,7 +115,7 @@ async def test_recon_probe_multi_target_denies_out_of_scope():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Test 2 — omega_scan: analysis_only mode blocks active scans
+# Test 2 — sentinel_scan: analysis_only mode blocks active scans
 # ═══════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.asyncio
@@ -123,19 +123,19 @@ async def test_scan_denied_analysis_only_blocks_active():
     """An active scan (scan_type='full') in analysis_only mode must be denied
     before any agents run, regardless of scope rules."""
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "A1", "mode": "analysis_only"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "A1", "mode": "analysis_only"})
         eid = _json(eng)["id"]
-        await _call(s, "omega_scope_add_rule", {
+        await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "include",
             "target_type": "domain", "pattern": "allowed.com",
         })
-        await assert_scope_denied(s, "omega_scan", {
+        await assert_scope_denied(s, "sentinel_scan", {
             "target": "allowed.com", "scan_type": "full", "engagement_id": eid,
         })
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Test 3 — omega_scan: no scope rules → deny
+# Test 3 — sentinel_scan: no scope rules → deny
 # ═══════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.asyncio
@@ -143,9 +143,9 @@ async def test_scan_denied_no_rules_blocks_active():
     """Active scan with an engagement but no scope rules must be denied
     (deny-by-default policy)."""
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "A2", "mode": "pentest"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "A2", "mode": "pentest"})
         eid = _json(eng)["id"]
-        await assert_scope_denied(s, "omega_scan", {
+        await assert_scope_denied(s, "sentinel_scan", {
             "target": "example.com", "scan_type": "full", "engagement_id": eid,
         })
 
@@ -156,7 +156,7 @@ async def test_scan_denied_no_rules_blocks_active():
 
 @pytest_asyncio.fixture
 async def db():
-    with tempfile.TemporaryDirectory(prefix="omega_ph2_db_") as td:
+    with tempfile.TemporaryDirectory(prefix="sentinel_ph2_db_") as td:
         d = Database(os.path.join(td, "test.db"))
         await d.connect()
         yield d

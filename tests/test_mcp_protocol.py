@@ -1,4 +1,4 @@
-"""MCP protocol integration tests for OMEGA-CYBER-MCP.
+"""MCP protocol integration tests for SENTINEL.
 
 Starts the server as a subprocess, connects via the MCP client SDK,
 and exercises real tool calls over the wire.
@@ -30,47 +30,47 @@ STARTUP_TIMEOUT = 30
 TOOL_CALL_TIMEOUT = 30
 
 EXPECTED_TOOLS: list[str] = [
-    "omega_doctor",
-    "omega_engagement_create",
-    "omega_engagement_list",
-    "omega_engagement_get",
-    "omega_scope_add_rule",
-    "omega_scope_check",
-    "omega_scope_list_rules",
-    "omega_recon_subdomains",
-    "omega_recon_probe",
-    "omega_recon_portscan",
-    "omega_recon_fuzz",
-    "omega_recon_tech",
-    "omega_recon_crawl",
-    "omega_web_headers",
-    "omega_web_cors",
-    "omega_web_cookies",
-    "omega_web_endpoints",
-    "omega_web_full_scan",
-    "omega_web_js_analyze",
-    "omega_http_request",
-    "omega_scan",
-    "omega_graph_add_node",
-    "omega_graph_add_edge",
-    "omega_graph_query",
-    "omega_hypothesis_create",
-    "omega_hypothesis_update",
-    "omega_finding_create",
-    "omega_finding_list",
-    "omega_finding_validate",
-    "omega_finding_reject",
-    "omega_finding_summary",
-    "omega_evidence_list",
-    "omega_ctf_challenge_create",
-    "omega_ctf_challenge_list",
-    "omega_ctf_hypothesis",
-    "omega_ctf_submit_flag",
-    "omega_ctf_confirm_flag",
-    "omega_ctf_ledger",
-    "omega_report_generate",
-    "omega_tools_list",
-    "omega_audit_log",
+    "sentinel_doctor",
+    "sentinel_engagement_create",
+    "sentinel_engagement_list",
+    "sentinel_engagement_get",
+    "sentinel_scope_add_rule",
+    "sentinel_scope_check",
+    "sentinel_scope_list_rules",
+    "sentinel_recon_subdomains",
+    "sentinel_recon_probe",
+    "sentinel_recon_portscan",
+    "sentinel_recon_fuzz",
+    "sentinel_recon_tech",
+    "sentinel_recon_crawl",
+    "sentinel_web_headers",
+    "sentinel_web_cors",
+    "sentinel_web_cookies",
+    "sentinel_web_endpoints",
+    "sentinel_web_full_scan",
+    "sentinel_web_js_analyze",
+    "sentinel_http_request",
+    "sentinel_scan",
+    "sentinel_graph_add_node",
+    "sentinel_graph_add_edge",
+    "sentinel_graph_query",
+    "sentinel_hypothesis_create",
+    "sentinel_hypothesis_update",
+    "sentinel_finding_create",
+    "sentinel_finding_list",
+    "sentinel_finding_validate",
+    "sentinel_finding_reject",
+    "sentinel_finding_summary",
+    "sentinel_evidence_list",
+    "sentinel_ctf_challenge_create",
+    "sentinel_ctf_challenge_list",
+    "sentinel_ctf_hypothesis",
+    "sentinel_ctf_submit_flag",
+    "sentinel_ctf_confirm_flag",
+    "sentinel_ctf_ledger",
+    "sentinel_report_generate",
+    "sentinel_tools_list",
+    "sentinel_audit_log",
 ]
 
 
@@ -80,9 +80,9 @@ def _server_params(tmpdir: str, **overrides) -> StdioServerParameters:
     """Build StdioServerParameters with a fresh temp-dir database."""
     defaults: dict = {
         "command": VENV_PYTHON,
-        "args": ["-m", "omega.mcp"],
+        "args": ["-m", "sentinel.mcp"],
         "cwd": PROJECT_ROOT,
-        "env": {"OMEGA_BASE_DIR": tmpdir},
+        "env": {"SENTINEL_BASE_DIR": tmpdir},
     }
     defaults.update(overrides)
     return StdioServerParameters(**defaults)
@@ -115,7 +115,7 @@ async def connected_server() -> AsyncGenerator[ClientSession, None]:
     Each server gets its own temporary directory so the database schema is
     always created from scratch — no stale-schema conflicts.
     """
-    with tempfile.TemporaryDirectory(prefix="omega_test_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="sentinel_test_") as tmpdir:
         async with stdio_client(_server_params(tmpdir)) as streams:
             read_stream, write_stream = streams
             async with ClientSession(read_stream, write_stream) as session:
@@ -158,10 +158,10 @@ async def test_list_tools_not_empty():
 
 
 @pytest.mark.asyncio
-async def test_omega_doctor_returns_structured_output():
+async def test_sentinel_doctor_returns_structured_output():
     async with connected_server() as session:
-        result = await _call(session, "omega_doctor")
-        assert not result.is_error, f"omega_doctor returned error: {result.content}"
+        result = await _call(session, "sentinel_doctor")
+        assert not result.is_error, f"sentinel_doctor returned error: {result.content}"
         data = _parse_json(_extract_text(result))
         assert "python_version" in data
         assert "platform" in data
@@ -170,9 +170,9 @@ async def test_omega_doctor_returns_structured_output():
 
 
 @pytest.mark.asyncio
-async def test_omega_engagement_create():
+async def test_sentinel_engagement_create():
     async with connected_server() as session:
-        result = await _call(session, "omega_engagement_create", {
+        result = await _call(session, "sentinel_engagement_create", {
             "name": "MCP Test Engagement",
             "mode": "local_lab",
             "description": "Created by test_mcp_protocol",
@@ -185,12 +185,12 @@ async def test_omega_engagement_create():
 
 
 @pytest.mark.asyncio
-async def test_omega_engagement_list():
+async def test_sentinel_engagement_list():
     async with connected_server() as session:
-        await _call(session, "omega_engagement_create", {
+        await _call(session, "sentinel_engagement_create", {
             "name": "List Test", "mode": "local_lab",
         })
-        result = await _call(session, "omega_engagement_list")
+        result = await _call(session, "sentinel_engagement_list")
         assert not result.is_error
         data = _parse_json(_extract_text(result))
         assert isinstance(data, list)
@@ -198,21 +198,21 @@ async def test_omega_engagement_list():
 
 
 @pytest.mark.asyncio
-async def test_omega_scope_check_in_and_out_of_scope():
+async def test_sentinel_scope_check_in_and_out_of_scope():
     async with connected_server() as session:
-        create_result = await _call(session, "omega_engagement_create", {
+        create_result = await _call(session, "sentinel_engagement_create", {
             "name": "Scope Test", "mode": "ctf",
         })
         eng_id = _parse_json(_extract_text(create_result))["id"]
 
-        in_scope = await _call(session, "omega_scope_check", {
+        in_scope = await _call(session, "sentinel_scope_check", {
             "engagement_id": eng_id, "target": "challenge.ctf.local",
         })
         assert not in_scope.is_error
         in_data = _parse_json(_extract_text(in_scope))
         assert in_data["allowed"] is True
 
-        oos = await _call(session, "omega_scope_check", {
+        oos = await _call(session, "sentinel_scope_check", {
             "engagement_id": "nonexistent_id", "target": "evil.com",
         })
         assert not oos.is_error
@@ -221,15 +221,15 @@ async def test_omega_scope_check_in_and_out_of_scope():
 
 
 @pytest.mark.asyncio
-async def test_omega_scope_add_rule_and_list():
+async def test_sentinel_scope_add_rule_and_list():
     async with connected_server() as session:
-        create_result = await _call(session, "omega_engagement_create", {
+        create_result = await _call(session, "sentinel_engagement_create", {
             "name": "Scope Rule Test", "mode": "bug_bounty",
             "description": "testing scope rules via MCP",
         })
         eng_id = _parse_json(_extract_text(create_result))["id"]
 
-        add_result = await _call(session, "omega_scope_add_rule", {
+        add_result = await _call(session, "sentinel_scope_add_rule", {
             "engagement_id": eng_id,
             "rule_type": "include",
             "target_type": "wildcard",
@@ -240,7 +240,7 @@ async def test_omega_scope_add_rule_and_list():
         add_data = _parse_json(_extract_text(add_result))
         assert add_data["success"] is True
 
-        list_result = await _call(session, "omega_scope_list_rules", {
+        list_result = await _call(session, "sentinel_scope_list_rules", {
             "engagement_id": eng_id,
         })
         assert not list_result.is_error
@@ -251,9 +251,9 @@ async def test_omega_scope_add_rule_and_list():
 
 
 @pytest.mark.asyncio
-async def test_omega_tools_list():
+async def test_sentinel_tools_list():
     async with connected_server() as session:
-        result = await _call(session, "omega_tools_list")
+        result = await _call(session, "sentinel_tools_list")
         assert not result.is_error
         data = _parse_json(_extract_text(result))
         assert isinstance(data, dict)
@@ -264,14 +264,14 @@ async def test_omega_tools_list():
 
 
 @pytest.mark.asyncio
-async def test_omega_hypothesis_create():
+async def test_sentinel_hypothesis_create():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "Hypothesis Test", "mode": "local_lab",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
-        result = await _call(session, "omega_hypothesis_create", {
+        result = await _call(session, "sentinel_hypothesis_create", {
             "engagement_id": eng_id,
             "category": "xss",
             "target": "app.local",
@@ -286,14 +286,14 @@ async def test_omega_hypothesis_create():
 
 
 @pytest.mark.asyncio
-async def test_omega_finding_create_and_list():
+async def test_sentinel_finding_create_and_list():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "Finding Test", "mode": "local_lab",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
-        create_result = await _call(session, "omega_finding_create", {
+        create_result = await _call(session, "sentinel_finding_create", {
             "engagement_id": eng_id,
             "title": "SQL Injection in login form",
             "severity": "high",
@@ -307,7 +307,7 @@ async def test_omega_finding_create_and_list():
         assert finding["title"] == "SQL Injection in login form"
         assert finding["severity"] == "high"
 
-        list_result = await _call(session, "omega_finding_list", {
+        list_result = await _call(session, "sentinel_finding_list", {
             "engagement_id": eng_id,
         })
         assert not list_result.is_error
@@ -318,21 +318,21 @@ async def test_omega_finding_create_and_list():
 
 
 @pytest.mark.asyncio
-async def test_omega_finding_summary():
+async def test_sentinel_finding_summary():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "Summary Test", "mode": "local_lab",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
         for severity in ("high", "medium", "low"):
-            await _call(session, "omega_finding_create", {
+            await _call(session, "sentinel_finding_create", {
                 "engagement_id": eng_id,
                 "title": f"Finding [{severity}]",
                 "severity": severity,
             })
 
-        summary_result = await _call(session, "omega_finding_summary", {
+        summary_result = await _call(session, "sentinel_finding_summary", {
             "engagement_id": eng_id,
         })
         assert not summary_result.is_error
@@ -344,26 +344,26 @@ async def test_omega_finding_summary():
 
 
 @pytest.mark.asyncio
-async def test_omega_graph_workflow():
+async def test_sentinel_graph_workflow():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "Graph Test", "mode": "local_lab",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
-        n1_result = await _call(session, "omega_graph_add_node", {
+        n1_result = await _call(session, "sentinel_graph_add_node", {
             "engagement_id": eng_id, "node_type": "domain", "label": "example.com",
         })
         assert not n1_result.is_error
         n1 = _parse_json(_extract_text(n1_result))
 
-        n2_result = await _call(session, "omega_graph_add_node", {
+        n2_result = await _call(session, "sentinel_graph_add_node", {
             "engagement_id": eng_id, "node_type": "ip", "label": "1.2.3.4",
         })
         assert not n2_result.is_error
         n2 = _parse_json(_extract_text(n2_result))
 
-        edge_result = await _call(session, "omega_graph_add_edge", {
+        edge_result = await _call(session, "sentinel_graph_add_edge", {
             "engagement_id": eng_id,
             "source_id": n1["id"],
             "target_id": n2["id"],
@@ -373,7 +373,7 @@ async def test_omega_graph_workflow():
         edge = _parse_json(_extract_text(edge_result))
         assert edge["type"] == "resolves_to"
 
-        query_result = await _call(session, "omega_graph_query", {
+        query_result = await _call(session, "sentinel_graph_query", {
             "engagement_id": eng_id, "node_type": "domain",
         })
         assert not query_result.is_error
@@ -383,14 +383,14 @@ async def test_omega_graph_workflow():
 
 
 @pytest.mark.asyncio
-async def test_omega_ctf_challenge_workflow():
+async def test_sentinel_ctf_challenge_workflow():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "CTF Workflow", "mode": "ctf",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
-        ch_result = await _call(session, "omega_ctf_challenge_create", {
+        ch_result = await _call(session, "sentinel_ctf_challenge_create", {
             "engagement_id": eng_id,
             "name": "Buffer Overflow 101",
             "category": "pwn",
@@ -403,7 +403,7 @@ async def test_omega_ctf_challenge_workflow():
         assert ch["category"] == "pwn"
         ch_id = ch["id"]
 
-        hyp_result = await _call(session, "omega_ctf_hypothesis", {
+        hyp_result = await _call(session, "sentinel_ctf_hypothesis", {
             "challenge_id": ch_id,
             "hypothesis": "Stack buffer overflow via gets()",
             "test_plan": "Send 200 bytes of padding + addr",
@@ -413,21 +413,21 @@ async def test_omega_ctf_challenge_workflow():
         hyp = _parse_json(_extract_text(hyp_result))
         assert hyp["status"] == "active"
 
-        submit_result = await _call(session, "omega_ctf_submit_flag", {
+        submit_result = await _call(session, "sentinel_ctf_submit_flag", {
             "challenge_id": ch_id, "flag": "flag{pwn3d_y0u}",
         })
         assert not submit_result.is_error
         sub = _parse_json(_extract_text(submit_result))
         assert sub["submitted"] is True
 
-        confirm_result = await _call(session, "omega_ctf_confirm_flag", {
+        confirm_result = await _call(session, "sentinel_ctf_confirm_flag", {
             "challenge_id": ch_id, "flag": "flag{pwn3d_y0u}",
         })
         assert not confirm_result.is_error
         conf = _parse_json(_extract_text(confirm_result))
         assert conf["confirmed"] is True
 
-        ledger_result = await _call(session, "omega_ctf_ledger", {
+        ledger_result = await _call(session, "sentinel_ctf_ledger", {
             "challenge_id": ch_id,
         })
         assert not ledger_result.is_error
@@ -441,14 +441,14 @@ async def test_omega_ctf_challenge_workflow():
 
 
 @pytest.mark.asyncio
-async def test_omega_audit_log():
+async def test_sentinel_audit_log():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "Audit Log Test", "mode": "local_lab",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
-        result = await _call(session, "omega_audit_log", {
+        result = await _call(session, "sentinel_audit_log", {
             "engagement_id": eng_id,
         })
         assert not result.is_error
@@ -457,14 +457,14 @@ async def test_omega_audit_log():
 
 
 @pytest.mark.asyncio
-async def test_omega_report_generate():
+async def test_sentinel_report_generate():
     async with connected_server() as session:
-        eng_result = await _call(session, "omega_engagement_create", {
+        eng_result = await _call(session, "sentinel_engagement_create", {
             "name": "Report Test", "mode": "local_lab",
         })
         eng_id = _parse_json(_extract_text(eng_result))["id"]
 
-        result = await _call(session, "omega_report_generate", {
+        result = await _call(session, "sentinel_report_generate", {
             "engagement_id": eng_id,
             "format": "markdown",
             "title": "Integration Test Report",

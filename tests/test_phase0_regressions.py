@@ -1,7 +1,7 @@
 """Phase 0 regression tests.
 
 Covers bugs found during the Phase 0 audit:
-- HttpxAdapter never fed its targets to httpx via stdin (broken omega_recon_probe)
+- HttpxAdapter never fed its targets to httpx via stdin (broken sentinel_recon_probe)
 - RateLimiter buckets never refilled (hard lockout after burst)
 - Duplicated dead CTF branch in ScopeEngine.authorize_target
 - Recon/web/http tools bypassed scope authorization entirely
@@ -18,10 +18,10 @@ from collections.abc import AsyncGenerator
 
 import pytest
 
-import omega.scope
-import omega.recon
-from omega.scope import RateLimiter
-from omega.tools import ToolAdapter, ToolExecutionRequest
+import sentinel.scope
+import sentinel.recon
+from sentinel.scope import RateLimiter
+from sentinel.tools import ToolAdapter, ToolExecutionRequest
 from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -34,9 +34,9 @@ TIMEOUT = 30
 def _server_params(tmpdir: str) -> StdioServerParameters:
     return StdioServerParameters(
         command=VENV_PYTHON,
-        args=["-m", "omega.mcp"],
+        args=["-m", "sentinel.mcp"],
         cwd=PROJECT_ROOT,
-        env={"OMEGA_BASE_DIR": tmpdir},
+        env={"SENTINEL_BASE_DIR": tmpdir},
     )
 
 
@@ -54,7 +54,7 @@ async def _call(session: ClientSession, tool: str, args: dict | None = None) -> 
 
 @asynccontextmanager
 async def fresh_server() -> AsyncGenerator[ClientSession, None]:
-    with tempfile.TemporaryDirectory(prefix="omega_ph0_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="sentinel_ph0_") as tmpdir:
         async with stdio_client(_server_params(tmpdir)) as streams:
             read, write = streams
             async with ClientSession(read, write) as session:
@@ -74,8 +74,8 @@ def test_httpx_feeds_targets_via_stdin(monkeypatch):
         captured["input_data"] = input_data
         return "", "", 0, 1.0
 
-    monkeypatch.setattr(omega.recon.HttpxAdapter, "_run_subprocess_with_input", fake_run)
-    adapter = omega.recon.HttpxAdapter()
+    monkeypatch.setattr(sentinel.recon.HttpxAdapter, "_run_subprocess_with_input", fake_run)
+    adapter = sentinel.recon.HttpxAdapter()
     request = ToolExecutionRequest(
         tool_name="httpx",
         target="a.example.com",
@@ -96,8 +96,8 @@ def test_httpx_single_target_falls_back_to_request_target(monkeypatch):
         captured["input_data"] = input_data
         return "", "", 0, 1.0
 
-    monkeypatch.setattr(omega.recon.HttpxAdapter, "_run_subprocess_with_input", fake_run)
-    adapter = omega.recon.HttpxAdapter()
+    monkeypatch.setattr(sentinel.recon.HttpxAdapter, "_run_subprocess_with_input", fake_run)
+    adapter = sentinel.recon.HttpxAdapter()
     request = ToolExecutionRequest(tool_name="httpx", target="single.example.com")
     asyncio.run(adapter.execute(request))
     assert captured["input_data"] == b"single.example.com\n"
@@ -105,7 +105,7 @@ def test_httpx_single_target_falls_back_to_request_target(monkeypatch):
 
 def test_subprocess_with_input_is_shared_base_helper():
     assert callable(getattr(ToolAdapter, "_run_subprocess_with_input"))
-    assert callable(getattr(omega.recon.DnsxAdapter, "_run_subprocess_with_input"))
+    assert callable(getattr(sentinel.recon.DnsxAdapter, "_run_subprocess_with_input"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -114,7 +114,7 @@ def test_subprocess_with_input_is_shared_base_helper():
 
 def test_rate_limiter_respects_burst(monkeypatch):
     clock = {"now": 1000.0}
-    monkeypatch.setattr(omega.scope.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(sentinel.scope.time, "time", lambda: clock["now"])
     limiter = RateLimiter(rps=5.0, burst=3)
 
     assert limiter.allow("t")
@@ -125,7 +125,7 @@ def test_rate_limiter_respects_burst(monkeypatch):
 
 def test_rate_limiter_refills_over_time(monkeypatch):
     clock = {"now": 1000.0}
-    monkeypatch.setattr(omega.scope.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(sentinel.scope.time, "time", lambda: clock["now"])
     limiter = RateLimiter(rps=2.0, burst=3)
 
     for _ in range(3):
@@ -140,7 +140,7 @@ def test_rate_limiter_refills_over_time(monkeypatch):
 
 def test_rate_limiter_bucket_is_capped_at_burst(monkeypatch):
     clock = {"now": 1000.0}
-    monkeypatch.setattr(omega.scope.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(sentinel.scope.time, "time", lambda: clock["now"])
     limiter = RateLimiter(rps=1.0, burst=2)
 
     for _ in range(2):
@@ -155,7 +155,7 @@ def test_rate_limiter_bucket_is_capped_at_burst(monkeypatch):
 
 def test_rate_limiter_targets_are_independent(monkeypatch):
     clock = {"now": 1000.0}
-    monkeypatch.setattr(omega.scope.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(sentinel.scope.time, "time", lambda: clock["now"])
     limiter = RateLimiter(rps=5.0, burst=1)
 
     assert limiter.allow("a")
@@ -179,14 +179,14 @@ async def assert_denied(session: ClientSession, tool: str, args: dict) -> None:
 @pytest.mark.asyncio
 async def test_recon_tools_gated_when_engagement_has_no_rules():
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "Gated", "mode": "bug_bounty"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "Gated", "mode": "bug_bounty"})
         eid = _json(eng)["id"]
 
         cases = [
-            ("omega_recon_probe", {"target": "probe.example.com", "engagement_id": eid}),
-            ("omega_recon_fuzz", {"target": "http://fuzz.example.com", "engagement_id": eid}),
-            ("omega_recon_tech", {"target": "tech.example.com", "engagement_id": eid}),
-            ("omega_recon_crawl", {"target": "http://crawl.example.com", "engagement_id": eid}),
+            ("sentinel_recon_probe", {"target": "probe.example.com", "engagement_id": eid}),
+            ("sentinel_recon_fuzz", {"target": "http://fuzz.example.com", "engagement_id": eid}),
+            ("sentinel_recon_tech", {"target": "tech.example.com", "engagement_id": eid}),
+            ("sentinel_recon_crawl", {"target": "http://crawl.example.com", "engagement_id": eid}),
         ]
         for tool, args in cases:
             await assert_denied(s, tool, args)
@@ -195,16 +195,16 @@ async def test_recon_tools_gated_when_engagement_has_no_rules():
 @pytest.mark.asyncio
 async def test_web_tools_gated_when_engagement_has_no_rules():
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "Gated", "mode": "bug_bounty"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "Gated", "mode": "bug_bounty"})
         eid = _json(eng)["id"]
 
         cases = [
-            ("omega_web_headers", {"url": "http://web.example.com", "engagement_id": eid}),
-            ("omega_web_cors", {"url": "http://web.example.com", "engagement_id": eid}),
-            ("omega_web_cookies", {"url": "http://web.example.com", "engagement_id": eid}),
-            ("omega_web_endpoints", {"url": "http://web.example.com", "engagement_id": eid}),
-            ("omega_web_full_scan", {"target": "http://web.example.com", "engagement_id": eid}),
-            ("omega_web_js_analyze", {"js_url": "http://web.example.com/app.js", "engagement_id": eid}),
+            ("sentinel_web_headers", {"url": "http://web.example.com", "engagement_id": eid}),
+            ("sentinel_web_cors", {"url": "http://web.example.com", "engagement_id": eid}),
+            ("sentinel_web_cookies", {"url": "http://web.example.com", "engagement_id": eid}),
+            ("sentinel_web_endpoints", {"url": "http://web.example.com", "engagement_id": eid}),
+            ("sentinel_web_full_scan", {"target": "http://web.example.com", "engagement_id": eid}),
+            ("sentinel_web_js_analyze", {"js_url": "http://web.example.com/app.js", "engagement_id": eid}),
         ]
         for tool, args in cases:
             await assert_denied(s, tool, args)
@@ -213,16 +213,16 @@ async def test_web_tools_gated_when_engagement_has_no_rules():
 @pytest.mark.asyncio
 async def test_http_request_gated_when_engagement_has_no_rules():
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "Gated", "mode": "bug_bounty"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "Gated", "mode": "bug_bounty"})
         eid = _json(eng)["id"]
-        await assert_denied(s, "omega_http_request", {"method": "GET", "url": "http://api.example.com", "engagement_id": eid})
+        await assert_denied(s, "sentinel_http_request", {"method": "GET", "url": "http://api.example.com", "engagement_id": eid})
 
 
 @pytest.mark.asyncio
 async def test_recon_tools_open_world_without_engagement():
     """Without an engagement_id, recon tools remain ungated (open-world design)."""
     async with fresh_server() as s:
-        r = await _call(s, "omega_recon_probe", {"target": "http://127.0.0.1:1"})
+        r = await _call(s, "sentinel_recon_probe", {"target": "http://127.0.0.1:1"})
         data = _json(r)
         assert "scope" not in json.dumps(data).lower().split("denied")
         assert "success" in data or "error" in data
@@ -232,13 +232,13 @@ async def test_recon_tools_open_world_without_engagement():
 async def test_scope_gated_tools_allow_after_include_rule():
     """Once an include rule is added, the same tools are authorized."""
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "Allowed", "mode": "bug_bounty"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "Allowed", "mode": "bug_bounty"})
         eid = _json(eng)["id"]
-        await _call(s, "omega_scope_add_rule", {
+        await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "include",
             "target_type": "url", "pattern": "http://target.example.com",
         })
-        r = await _call(s, "omega_recon_probe", {"target": "http://target.example.com", "engagement_id": eid})
+        r = await _call(s, "sentinel_recon_probe", {"target": "http://target.example.com", "engagement_id": eid})
         data = _json(r)
         # Should NOT be a scope denial; execution proceeds (binary may be absent/fail, but not scope-blocked)
         err = data.get("error")
@@ -252,17 +252,17 @@ async def test_scope_gated_tools_allow_after_include_rule():
 @pytest.mark.asyncio
 async def test_ctf_mode_scope_with_exclusions():
     async with fresh_server() as s:
-        eng = await _call(s, "omega_engagement_create", {"name": "CTF", "mode": "ctf"})
+        eng = await _call(s, "sentinel_engagement_create", {"name": "CTF", "mode": "ctf"})
         eid = _json(eng)["id"]
 
-        r = await _call(s, "omega_scope_check", {"engagement_id": eid, "target": "anything.example"})
+        r = await _call(s, "sentinel_scope_check", {"engagement_id": eid, "target": "anything.example"})
         assert _json(r)["allowed"] is True
 
-        await _call(s, "omega_scope_add_rule", {
+        await _call(s, "sentinel_scope_add_rule", {
             "engagement_id": eid, "rule_type": "exclude",
             "target_type": "wildcard", "pattern": "*.banned.example",
         })
-        r = await _call(s, "omega_scope_check", {"engagement_id": eid, "target": "sub.banned.example"})
+        r = await _call(s, "sentinel_scope_check", {"engagement_id": eid, "target": "sub.banned.example"})
         assert _json(r)["allowed"] is False
 
 
@@ -272,9 +272,9 @@ async def test_ctf_mode_scope_with_exclusions():
 
 @pytest.mark.asyncio
 async def test_authorize_does_not_permanently_lock_after_burst():
-    from omega.storage import Database
-    from omega.scope import ScopeEngine
-    from omega.core.schemas import Engagement, EngagementMode, new_id, now_utc
+    from sentinel.storage import Database
+    from sentinel.scope import ScopeEngine
+    from sentinel.core.schemas import Engagement, EngagementMode, new_id, now_utc
 
     db = Database()
     await db.connect()

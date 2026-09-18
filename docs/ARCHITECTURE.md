@@ -1,17 +1,17 @@
-# OMEGA-CYBER-MCP Architecture
+# SENTINEL Architecture
 
 ## System Overview
 
-OMEGA-CYBER-MCP is an MCP (Model Context Protocol) server that exposes 30+ security research tools through a standardized interface. The system is built around a layered architecture:
+SENTINEL is an MCP (Model Context Protocol) server that exposes 30+ security research tools through a standardized interface. The system is built around a layered architecture:
 
 ```
 MCP Client (OpenCode, Claude, etc.)
         |
     [MCP Protocol]
         |
-    OmegaServer (omega/mcp/__init__.py)
+    SentinelServer (sentinel/mcp/__init__.py)
         |
-    Orchestrator (omega/agents/__init__.py)
+    Orchestrator (sentinel/agents/__init__.py)
         |
     +--------+--------+--------+--------+
     |        |        |        |        |
@@ -19,39 +19,39 @@ MCP Client (OpenCode, Claude, etc.)
     |        |
     v        v
  Database   Tool Adapters (subfinder, nmap, httpx, ffuf, ...)
- (SQLite)   (omega/recon/__init__.py, omega/tools/__init__.py)
+ (SQLite)   (sentinel/recon/__init__.py, sentinel/tools/__init__.py)
 ```
 
 ## Module Map
 
 | Module | Path | Description |
 |---|---|---|
-| `omega.mcp` | `omega/mcp/__init__.py` | MCP server, tool registration, stdio/HTTP transports |
-| `omega.agents` | `omega/agents/__init__.py` | Multi-agent orchestrator: ReconAgent, WebAgent, CTFWebAgent, PlannerAgent, Orchestrator |
-| `omega.scope` | `omega/scope/__init__.py` | Scope enforcement, SSRF protection, rate limiting, authorization pipeline |
-| `omega.tools` | `omega/tools/__init__.py` | ToolAdapter base class, ToolRegistry, ToolExecutor with evidence collection |
-| `omega.recon` | `omega/recon/__init__.py` | Recon adapters: SubfinderAdapter, HttpxAdapter, NmapAdapter, FfufAdapter, WhatWebAdapter, GobusterAdapter, KatanaAdapter |
-| `omega.web` | `omega/web/__init__.py` | Web security engine: headers, CORS, cookies, endpoints, JS analysis |
-| `omega.http` | `omega/http/__init__.py` | HTTP client with proxy support, redirect control, evidence storage |
-| `omega.ctf` | `omega/ctf/__init__.py` | CTF engine: challenge management, hypothesis ledger, flag tracking |
-| `omega.evidence` | `omega/evidence/__init__.py` | Immutable evidence storage with deduplication |
-| `omega.findings` | `omega/findings/__init__.py` | Finding lifecycle, hypothesis tracking, deduplication, clustering |
-| `omega.knowledge` | `omega/knowledge/__init__.py` | Asset graph: in-memory + persistent, BFS pathfinding, neighbor queries |
-| `omega.storage` | `omega/storage/__init__.py` | SQLite database layer with 16 tables |
-| `omega.config` | `omega/config/__init__.py` | Configuration from environment variables, Pydantic models |
-| `omega.reporting` | `omega/reporting/__init__.py` | Report generation: Markdown, HTML, JSON |
-| `omega.orchestration` | `omega/orchestration/__init__.py` | Async job management with retry and cancellation |
-| `omega.workspace` | `omega/workspace/__init__.py` | Isolated per-engagement working directories |
-| `omega.core` | `omega/core/schemas.py` | Data models, enums, Pydantic schemas |
-| `omega.cli` | `omega/cli/__init__.py` | CLI entry point (doctor, tools, serve, inspect) |
-| `omega.browser` | `omega/browser/` | Playwright browser automation (optional) |
-| `omega.forensics` | `omega/forensics/` | Forensics analysis (extensible) |
-| `omega.reversing` | `omega/reversing/` | Reverse engineering (extensible) |
-| `omega.pwn` | `omega/pwn/` | Binary exploitation (extensible) |
-| `omega.crypto` | `omega/crypto/` | Cryptography (extensible) |
-| `omega.mobile` | `omega/mobile/` | Mobile security (extensible) |
-| `omega.cloud` | `omega/cloud/` | Cloud security (extensible) |
-| `omega.telemetry` | `omega/telemetry/` | Telemetry and metrics (extensible) |
+| `sentinel.mcp` | `sentinel/mcp/__init__.py` | MCP server, tool registration, stdio/HTTP transports |
+| `sentinel.agents` | `sentinel/agents/__init__.py` | Multi-agent orchestrator: ReconAgent, WebAgent, CTFWebAgent, PlannerAgent, Orchestrator |
+| `sentinel.scope` | `sentinel/scope/__init__.py` | Scope enforcement, SSRF protection, rate limiting, authorization pipeline |
+| `sentinel.tools` | `sentinel/tools/__init__.py` | ToolAdapter base class, ToolRegistry, ToolExecutor with evidence collection |
+| `sentinel.recon` | `sentinel/recon/__init__.py` | Recon adapters: SubfinderAdapter, HttpxAdapter, NmapAdapter, FfufAdapter, WhatWebAdapter, GobusterAdapter, KatanaAdapter |
+| `sentinel.web` | `sentinel/web/__init__.py` | Web security engine: headers, CORS, cookies, endpoints, JS analysis |
+| `sentinel.http` | `sentinel/http/__init__.py` | HTTP client with proxy support, redirect control, evidence storage |
+| `sentinel.ctf` | `sentinel/ctf/__init__.py` | CTF engine: challenge management, hypothesis ledger, flag tracking |
+| `sentinel.evidence` | `sentinel/evidence/__init__.py` | Immutable evidence storage with deduplication |
+| `sentinel.findings` | `sentinel/findings/__init__.py` | Finding lifecycle, hypothesis tracking, deduplication, clustering |
+| `sentinel.knowledge` | `sentinel/knowledge/__init__.py` | Asset graph: in-memory + persistent, BFS pathfinding, neighbor queries |
+| `sentinel.storage` | `sentinel/storage/__init__.py` | SQLite database layer with 16 tables |
+| `sentinel.config` | `sentinel/config/__init__.py` | Configuration from environment variables, Pydantic models |
+| `sentinel.reporting` | `sentinel/reporting/__init__.py` | Report generation: Markdown, HTML, JSON |
+| `sentinel.orchestration` | `sentinel/orchestration/__init__.py` | Async job management with retry and cancellation |
+| `sentinel.workspace` | `sentinel/workspace/__init__.py` | Isolated per-engagement working directories |
+| `sentinel.core` | `sentinel/core/schemas.py` | Data models, enums, Pydantic schemas |
+| `sentinel.cli` | `sentinel/cli/__init__.py` | CLI entry point (doctor, tools, serve, inspect) |
+| `sentinel.browser` | `sentinel/browser/` | Playwright browser automation (optional) |
+| `sentinel.forensics` | `sentinel/forensics/` | Forensics analysis (extensible) |
+| `sentinel.reversing` | `sentinel/reversing/` | Reverse engineering (extensible) |
+| `sentinel.pwn` | `sentinel/pwn/` | Binary exploitation (extensible) |
+| `sentinel.crypto` | `sentinel/crypto/` | Cryptography (extensible) |
+| `sentinel.mobile` | `sentinel/mobile/` | Mobile security (extensible) |
+| `sentinel.cloud` | `sentinel/cloud/` | Cloud security (extensible) |
+| `sentinel.telemetry` | `sentinel/telemetry/` | Telemetry and metrics (extensible) |
 
 ## Data Flow
 
@@ -81,7 +81,7 @@ The core data pipeline follows this sequence:
 
 ## SQLite Schema (16 Tables)
 
-Defined in `omega/storage/__init__.py`:
+Defined in `sentinel/storage/__init__.py`:
 
 | Table | Purpose | Key Indexes |
 |---|---|---|
@@ -109,91 +109,91 @@ Defined in `omega/storage/__init__.py`:
 ### Engagement Management
 | Tool | Description |
 |---|---|
-| `omega_engagement_create` | Create security engagement (ctf, bug_bounty, pentest, local_lab, analysis_only) |
-| `omega_engagement_list` | List all engagements |
-| `omega_engagement_get` | Get engagement details with scope rules and asset count |
+| `sentinel_engagement_create` | Create security engagement (ctf, bug_bounty, pentest, local_lab, analysis_only) |
+| `sentinel_engagement_list` | List all engagements |
+| `sentinel_engagement_get` | Get engagement details with scope rules and asset count |
 
 ### Scope Management
 | Tool | Description |
 |---|---|
-| `omega_scope_add_rule` | Add include/exclude scope rule (domain, wildcard, ip, cidr, url, port) |
-| `omega_scope_check` | Check if target is in scope |
-| `omega_scope_list_rules` | List all scope rules for engagement |
+| `sentinel_scope_add_rule` | Add include/exclude scope rule (domain, wildcard, ip, cidr, url, port) |
+| `sentinel_scope_check` | Check if target is in scope |
+| `sentinel_scope_list_rules` | List all scope rules for engagement |
 
 ### Reconnaissance
 | Tool | Description |
 |---|---|
-| `omega_recon_subdomains` | Passive subdomain enumeration via subfinder |
-| `omega_recon_probe` | HTTP probing via httpx |
-| `omega_recon_portscan` | Port scanning via nmap (syn/tcp/udp) |
-| `omega_recon_fuzz` | Directory fuzzing via ffuf |
-| `omega_recon_tech` | Technology fingerprinting via whatweb |
-| `omega_recon_crawl` | Website crawling via katana |
+| `sentinel_recon_subdomains` | Passive subdomain enumeration via subfinder |
+| `sentinel_recon_probe` | HTTP probing via httpx |
+| `sentinel_recon_portscan` | Port scanning via nmap (syn/tcp/udp) |
+| `sentinel_recon_fuzz` | Directory fuzzing via ffuf |
+| `sentinel_recon_tech` | Technology fingerprinting via whatweb |
+| `sentinel_recon_crawl` | Website crawling via katana |
 
 ### Web Security
 | Tool | Description |
 |---|---|
-| `omega_web_headers` | HTTP security header analysis (HSTS, CSP, X-Frame-Options, etc.) |
-| `omega_web_cors` | CORS misconfiguration testing |
-| `omega_web_cookies` | Cookie security property analysis (HttpOnly, Secure, SameSite) |
-| `omega_web_endpoints` | Endpoint extraction from HTML/JavaScript |
-| `omega_web_full_scan` | Full web security analysis (headers + CORS + cookies + endpoints) |
-| `omega_web_js_analyze` | JavaScript secret and endpoint analysis |
+| `sentinel_web_headers` | HTTP security header analysis (HSTS, CSP, X-Frame-Options, etc.) |
+| `sentinel_web_cors` | CORS misconfiguration testing |
+| `sentinel_web_cookies` | Cookie security property analysis (HttpOnly, Secure, SameSite) |
+| `sentinel_web_endpoints` | Endpoint extraction from HTML/JavaScript |
+| `sentinel_web_full_scan` | Full web security analysis (headers + CORS + cookies + endpoints) |
+| `sentinel_web_js_analyze` | JavaScript secret and endpoint analysis |
 
 ### HTTP Client
 | Tool | Description |
 |---|---|
-| `omega_http_request` | Execute HTTP requests (GET/POST/PUT/PATCH/DELETE) with evidence collection |
+| `sentinel_http_request` | Execute HTTP requests (GET/POST/PUT/PATCH/DELETE) with evidence collection |
 
 ### Orchestrated Scanning
 | Tool | Description |
 |---|---|
-| `omega_scan` | Run coordinated multi-agent scan (full, recon, web, ctf_web) |
+| `sentinel_scan` | Run coordinated multi-agent scan (full, recon, web, ctf_web) |
 
 ### Asset Graph
 | Tool | Description |
 |---|---|
-| `omega_graph_add_node` | Add node (domain, subdomain, ip, port, service, url, endpoint, finding, etc.) |
-| `omega_graph_add_edge` | Add edge (resolves_to, hosts, serves, calls, uses_technology, etc.) |
-| `omega_graph_query` | Query graph nodes by type or label |
+| `sentinel_graph_add_node` | Add node (domain, subdomain, ip, port, service, url, endpoint, finding, etc.) |
+| `sentinel_graph_add_edge` | Add edge (resolves_to, hosts, serves, calls, uses_technology, etc.) |
+| `sentinel_graph_query` | Query graph nodes by type or label |
 
 ### Findings & Hypotheses
 | Tool | Description |
 |---|---|
-| `omega_hypothesis_create` | Create vulnerability hypothesis |
-| `omega_hypothesis_update` | Update hypothesis status/evidence |
-| `omega_finding_create` | Create security finding (vulnerability report) |
-| `omega_finding_list` | List findings with optional severity filter |
-| `omega_finding_validate` | Mark finding as validated (confirmed) |
-| `omega_finding_reject` | Reject finding (false positive) |
-| `omega_finding_summary` | Summary counts by severity and status |
+| `sentinel_hypothesis_create` | Create vulnerability hypothesis |
+| `sentinel_hypothesis_update` | Update hypothesis status/evidence |
+| `sentinel_finding_create` | Create security finding (vulnerability report) |
+| `sentinel_finding_list` | List findings with optional severity filter |
+| `sentinel_finding_validate` | Mark finding as validated (confirmed) |
+| `sentinel_finding_reject` | Reject finding (false positive) |
+| `sentinel_finding_summary` | Summary counts by severity and status |
 
 ### Evidence
 | Tool | Description |
 |---|---|
-| `omega_evidence_list` | List evidence records with optional type filter |
+| `sentinel_evidence_list` | List evidence records with optional type filter |
 
 ### CTF Engine
 | Tool | Description |
 |---|---|
-| `omega_ctf_challenge_create` | Create CTF challenge workspace (web, crypto, pwn, rev, forensics, osint, misc, stego, mobile, blockchain) |
-| `omega_ctf_challenge_list` | List CTF challenges for engagement |
-| `omega_ctf_hypothesis` | Add hypothesis to challenge |
-| `omega_ctf_submit_flag` | Submit candidate flag |
-| `omega_ctf_confirm_flag` | Confirm flag as correct |
-| `omega_ctf_ledger` | Get hypothesis ledger (active/succeeded/failed) |
+| `sentinel_ctf_challenge_create` | Create CTF challenge workspace (web, crypto, pwn, rev, forensics, osint, misc, stego, mobile, blockchain) |
+| `sentinel_ctf_challenge_list` | List CTF challenges for engagement |
+| `sentinel_ctf_hypothesis` | Add hypothesis to challenge |
+| `sentinel_ctf_submit_flag` | Submit candidate flag |
+| `sentinel_ctf_confirm_flag` | Confirm flag as correct |
+| `sentinel_ctf_ledger` | Get hypothesis ledger (active/succeeded/failed) |
 
 ### Reporting & Utilities
 | Tool | Description |
 |---|---|
-| `omega_report_generate` | Generate report (markdown, html, json) |
-| `omega_tools_list` | Discover installed security tools |
-| `omega_audit_log` | View audit trail for engagement |
-| `omega_doctor` | Self-diagnostics (Python version, installed tools, dependencies) |
+| `sentinel_report_generate` | Generate report (markdown, html, json) |
+| `sentinel_tools_list` | Discover installed security tools |
+| `sentinel_audit_log` | View audit trail for engagement |
+| `sentinel_doctor` | Self-diagnostics (Python version, installed tools, dependencies) |
 
 ## Agent System
 
-The agent system (`omega/agents/__init__.py`) implements a multi-agent architecture:
+The agent system (`sentinel/agents/__init__.py`) implements a multi-agent architecture:
 
 ### Orchestrator
 The top-level coordinator. Wires together all engines and manages engagements.
@@ -218,7 +218,7 @@ CTF-specific web analysis: headers, CORS, endpoint extraction, body preview.
 
 ## Scope Engine
 
-Located in `omega/scope/__init__.py`. Central safety gate -- every active tool call must pass through.
+Located in `sentinel/scope/__init__.py`. Central safety gate -- every active tool call must pass through.
 
 ### Modes
 
@@ -244,7 +244,7 @@ Every active tool call goes through 4 checks:
 
 ## Evidence Pipeline
 
-The evidence engine (`omega/evidence/__init__.py`) provides:
+The evidence engine (`sentinel/evidence/__init__.py`) provides:
 
 - **Automatic deduplication** via content hashing (SHA-256 truncated to 16 hex chars)
 - **Immutable records** -- evidence is never modified after creation

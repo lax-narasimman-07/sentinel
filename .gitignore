@@ -47,8 +47,8 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# OMEGA workspace data
-.omega/
+# SENTINEL workspace data
+.sentinel/
 
 # Scan outputs
 *.json

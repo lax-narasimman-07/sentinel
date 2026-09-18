@@ -15,10 +15,10 @@ import inspect
 import os
 import sys
 
-import omega.recon
-import omega.tools
-from omega.core.errors import ErrorCode, ToolError
-from omega.core.schemas import (
+import sentinel.recon
+import sentinel.tools
+from sentinel.core.errors import ErrorCode, ToolError
+from sentinel.core.schemas import (
     ToolCapability,
     ToolExecutionRequest,
     ToolRiskLevel,
@@ -32,12 +32,12 @@ ADAPTER_NAMES = [
 ]
 
 WHOLE_PACKAGE = [
-    os.path.join(os.path.dirname(omega.recon.__file__), "__init__.py"),
-    os.path.join(os.path.dirname(omega.tools.__file__), "__init__.py"),
+    os.path.join(os.path.dirname(sentinel.recon.__file__), "__init__.py"),
+    os.path.join(os.path.dirname(sentinel.tools.__file__), "__init__.py"),
 ]
 
 
-class ProbeAdapter(omega.tools.ToolAdapter):
+class ProbeAdapter(sentinel.tools.ToolAdapter):
     """Minimal adapter used to exercise the shared ToolAdapter helpers."""
 
     def name(self) -> str:
@@ -182,8 +182,8 @@ def test_adapter_execute_returns_structured_failure_on_timeout(monkeypatch):
     async def fake_run(self, cmd, timeout=..., max_output_bytes=..., **kwargs):
         return "", "Command timed out after 5s", -1, 5012.0
 
-    monkeypatch.setattr(omega.recon.SubfinderAdapter, "_run_subprocess", fake_run)
-    adapter = omega.recon.SubfinderAdapter()
+    monkeypatch.setattr(sentinel.recon.SubfinderAdapter, "_run_subprocess", fake_run)
+    adapter = sentinel.recon.SubfinderAdapter()
     adapter._find_binary = lambda: "/usr/bin/subfinder"  # pretend installed
     request = ToolExecutionRequest(tool_name="subfinder", target="example.com")
 
@@ -194,8 +194,8 @@ def test_adapter_execute_returns_structured_failure_on_timeout(monkeypatch):
 
 
 def test_adapter_execute_returns_missing_binary_result(monkeypatch):
-    monkeypatch.setattr(omega.recon.NaabuAdapter, "_find_binary", lambda self: None)
-    adapter = omega.recon.NaabuAdapter()
+    monkeypatch.setattr(sentinel.recon.NaabuAdapter, "_find_binary", lambda self: None)
+    adapter = sentinel.recon.NaabuAdapter()
     request = ToolExecutionRequest(tool_name="naabu", target="example.com")
     result = asyncio.run(adapter.execute(request))
     assert not result.success
@@ -208,7 +208,7 @@ def test_adapter_execute_returns_missing_binary_result(monkeypatch):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_every_recon_adapter_uses_shared_hardened_helpers():
-    src = inspect.getsource(omega.recon)
+    src = inspect.getsource(sentinel.recon)
     assert src.count("self._missing_binary_result()") >= len(ADAPTER_NAMES)
     assert src.count("self._run_failure(") >= len(ADAPTER_NAMES)
     assert src.count("self._max_output_bytes()") >= len(ADAPTER_NAMES)

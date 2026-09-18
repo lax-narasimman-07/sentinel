@@ -1,4 +1,4 @@
-"""Comprehensive test suite for OMEGA-CYBER-MCP."""
+"""Comprehensive test suite for SENTINEL."""
 
 import asyncio
 import json
@@ -9,22 +9,22 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from omega.core.schemas import (
+from sentinel.core.schemas import (
     Engagement, EngagementMode, Finding, Hypothesis, Severity, Confidence,
     ValidationStatus, ToolRiskLevel, ToolCapability, ToolExecutionRequest,
     ToolResult, Evidence, Asset, new_id, now_utc, content_hash,
 )
-from omega.config import OmegaConfig, set_config
-from omega.storage import Database
-from omega.scope import ScopeEngine, ScopeCheckResult
-from omega.workspace import WorkspaceManager
-from omega.tools import ToolAdapter, ToolRegistry, ToolExecutor
-from omega.knowledge import AssetGraph
-from omega.evidence import EvidenceEngine
-from omega.findings import FindingEngine
-from omega.ctf import CTFEngine
-from omega.http import HTTPClient
-from omega.reporting import ReportEngine
+from sentinel.config import SentinelConfig, set_config
+from sentinel.storage import Database
+from sentinel.scope import ScopeEngine, ScopeCheckResult
+from sentinel.workspace import WorkspaceManager
+from sentinel.tools import ToolAdapter, ToolRegistry, ToolExecutor
+from sentinel.knowledge import AssetGraph
+from sentinel.evidence import EvidenceEngine
+from sentinel.findings import FindingEngine
+from sentinel.ctf import CTFEngine
+from sentinel.http import HTTPClient
+from sentinel.reporting import ReportEngine
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
@@ -634,7 +634,7 @@ class TestWorkspace:
 class TestOrchestrator:
     @pytest.mark.asyncio
     async def test_create_engagement(self, db):
-        from omega.agents import Orchestrator
+        from sentinel.agents import Orchestrator
         orch = Orchestrator(db)
         eng = await orch.create_engagement("Test", "local_lab", "A test engagement")
         assert eng.name == "Test"
@@ -642,7 +642,7 @@ class TestOrchestrator:
 
     @pytest.mark.asyncio
     async def test_run_scan_analysis_only(self, db):
-        from omega.agents import Orchestrator
+        from sentinel.agents import Orchestrator
         orch = Orchestrator(db)
         eng = await orch.create_engagement("Scan Test", "analysis_only")
         result = await orch.run_scan(eng.id, "example.com", "recon")
@@ -653,26 +653,26 @@ class TestOrchestrator:
 
 class TestMCPServer:
     def test_import(self):
-        from omega.mcp import OmegaServer
-        server = OmegaServer()
-        assert server.mcp.name == "omega-cyber-mcp"
+        from sentinel.mcp import SentinelServer
+        server = SentinelServer()
+        assert server.mcp.name == "sentinel"
         assert server.mcp.version == "1.0.0"
 
     def test_tools_registered(self):
-        from omega.mcp import OmegaServer
-        server = OmegaServer()
+        from sentinel.mcp import SentinelServer
+        server = SentinelServer()
         loop = asyncio.new_event_loop()
         loop.run_until_complete(server.initialize())
         # Check that tools are registered
         tool_names = [t.name for t in server.mcp._tool_manager._tools.values()]
-        assert "omega_engagement_create" in tool_names
-        assert "omega_scope_add_rule" in tool_names
-        assert "omega_recon_subdomains" in tool_names
-        assert "omega_web_headers" in tool_names
-        assert "omega_scan" in tool_names
-        assert "omega_ctf_challenge_create" in tool_names
-        assert "omega_report_generate" in tool_names
-        assert "omega_doctor" in tool_names
-        assert "omega_tools_list" in tool_names
+        assert "sentinel_engagement_create" in tool_names
+        assert "sentinel_scope_add_rule" in tool_names
+        assert "sentinel_recon_subdomains" in tool_names
+        assert "sentinel_web_headers" in tool_names
+        assert "sentinel_scan" in tool_names
+        assert "sentinel_ctf_challenge_create" in tool_names
+        assert "sentinel_report_generate" in tool_names
+        assert "sentinel_doctor" in tool_names
+        assert "sentinel_tools_list" in tool_names
         loop.run_until_complete(server.shutdown())
         loop.close()

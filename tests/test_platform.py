@@ -3,12 +3,12 @@
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 
-from omega.core.schemas import new_id, now_utc
+from sentinel.core.schemas import new_id, now_utc
 
 
 # ===== Dashboard API Tests =====
 
-from omega.api import dashboard_app
+from sentinel.api import dashboard_app
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def client():
 def test_dashboard_ui_serves(client):
     response = client.get("/")
     assert response.status_code == 200
-    assert "OMEGA" in response.text
+    assert "SENTINEL" in response.text
     assert "Security" in response.text
 
 
@@ -106,7 +106,7 @@ def test_dashboard_api_evidence(client):
 
 # ===== Broadcast Event Tests =====
 
-from omega.api import broadcast_event, _dashboard_state
+from sentinel.api import broadcast_event, _dashboard_state
 
 
 def test_broadcast_event_finding():
@@ -163,7 +163,7 @@ def test_api_web_tech_denied_no_scope(client):
 def test_api_web_full_scan_denied_analysis_only(client):
     """Active web/full-scan denied under analysis_only (observation-only)."""
     eid = _make_engagement(client, "gate-analysis-fullscan", "analysis_only")
-    with _patch("omega.api.routes._get_web_engine") as get_web:
+    with _patch("sentinel.api.routes._get_web_engine") as get_web:
         web_mock = AsyncMock()
         web_mock.full_scan = AsyncMock(return_value={})
         get_web.return_value = web_mock
@@ -175,7 +175,7 @@ def test_api_web_full_scan_denied_analysis_only(client):
 def test_api_web_tech_allowed_analysis_only(client):
     """Passive web/tech proceeds under analysis_only (observation-only)."""
     eid = _make_engagement(client, "gate-analysis-web-tech", "analysis_only")
-    with _patch("omega.api.routes._get_web_engine") as get_web:
+    with _patch("sentinel.api.routes._get_web_engine") as get_web:
         web_mock = AsyncMock()
         web_mock.detect_technologies = AsyncMock(return_value={"tech": []})
         get_web.return_value = web_mock
@@ -194,7 +194,7 @@ def test_api_http_request_denied_no_scope(client):
 
 def test_api_http_request_ungated_without_engagement(client):
     """http/request without engagement_id runs open-world (no gate)."""
-    with _patch("omega.api.routes._get_http_client") as get_http:
+    with _patch("sentinel.api.routes._get_http_client") as get_http:
         http_mock = AsyncMock()
         http_mock.request = AsyncMock(return_value={"status_code": 200, "body": "", "body_length": 0})
         get_http.return_value = http_mock
@@ -217,7 +217,7 @@ def test_api_auth_diff_test_denied_no_scope(client):
 
 def test_api_auth_diff_test_ungated_without_engagement(client):
     """auth/diff-test without engagement_id runs open-world."""
-    with _patch("omega.api.routes._get_http_client") as get_http:
+    with _patch("sentinel.api.routes._get_http_client") as get_http:
         http_mock = AsyncMock()
         http_mock.request = AsyncMock(return_value={"status_code": 200, "body_length": 10})
         get_http.return_value = http_mock

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from omega.api import APISecurityEngine, _dashboard_state, broadcast_event
-from omega.web import WebSecurityEngine, normalize_target_url
+from sentinel.api import APISecurityEngine, _dashboard_state, broadcast_event
+from sentinel.web import WebSecurityEngine, normalize_target_url
 
 # ═══════════════════════════════════════════════════════════════════════════
 # normalize_target_url — scheme allowlist

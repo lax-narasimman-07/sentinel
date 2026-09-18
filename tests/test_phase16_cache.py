@@ -10,10 +10,10 @@ import asyncio
 
 import pytest
 
-from omega.config import OmegaConfig, RateLimitConfig, ToolConfig
-from omega.core import cache as cache_mod
-from omega.core.cache import ReconCache, cache_key, ttl_for
-from omega.tools import ToolAdapter, ToolExecutionRequest, ToolResult
+from sentinel.config import SentinelConfig, RateLimitConfig, ToolConfig
+from sentinel.core import cache as cache_mod
+from sentinel.core.cache import ReconCache, cache_key, ttl_for
+from sentinel.tools import ToolAdapter, ToolExecutionRequest, ToolResult
 
 # ── Key derivation ───────────────────────────────────────────────────────────
 
@@ -34,12 +34,12 @@ class TestCacheKey:
 
 class TestTtlFor:
     def test_zero_by_default(self, monkeypatch) -> None:
-        monkeypatch.setattr("omega.config._config", OmegaConfig())
+        monkeypatch.setattr("sentinel.config._config", SentinelConfig())
         assert ttl_for("http") == 0.0
 
     def test_honors_per_tool_config(self, monkeypatch) -> None:
-        cfg = OmegaConfig(tools={"nmap": ToolConfig(name="nmap", cache_ttl_seconds=3600)})
-        monkeypatch.setattr("omega.config._config", cfg)
+        cfg = SentinelConfig(tools={"nmap": ToolConfig(name="nmap", cache_ttl_seconds=3600)})
+        monkeypatch.setattr("sentinel.config._config", cfg)
         assert ttl_for("nmap") == 3600.0
         assert ttl_for("other") == 0.0
 
@@ -102,7 +102,7 @@ class EchoAdapter(ToolAdapter):
         return "1.0"
 
     def capabilities(self) -> object:
-        from omega.core.schemas import ToolCapability, ToolRiskLevel, new_id, now_utc
+        from sentinel.core.schemas import ToolCapability, ToolRiskLevel, new_id, now_utc
         return ToolCapability(
             id=new_id(), name=self.name(), version=self.version(), description="",
             risk_level=ToolRiskLevel.READ_ONLY, is_available=True,
@@ -113,8 +113,8 @@ class EchoAdapter(ToolAdapter):
         return await self._run_subprocess(["/bin/echo", "hi"])
 
 
-def _config(ttl: float) -> OmegaConfig:
-    return OmegaConfig(
+def _config(ttl: float) -> SentinelConfig:
+    return SentinelConfig(
         tools={"echo_adapter": ToolConfig(name="echo_adapter", cache_ttl_seconds=ttl)},
         rate_limits=RateLimitConfig(enabled=False),
     )
@@ -130,7 +130,7 @@ def _counting_spawn(monkeypatch, counter: list[int], outcome: tuple[str, str, in
 @pytest.mark.asyncio
 async def test_second_call_hits_cache(monkeypatch, tmp_path) -> None:
     cache_mod.set_cache_path(str(tmp_path / "rc.db"))
-    monkeypatch.setattr("omega.config._config", _config(ttl=60))
+    monkeypatch.setattr("sentinel.config._config", _config(ttl=60))
     adapter = EchoAdapter()
     counter: list[int] = [0]
     _counting_spawn(monkeypatch, counter, ("fresh-out", "", 0, 5.0))
@@ -143,7 +143,7 @@ async def test_second_call_hits_cache(monkeypatch, tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_failure_not_cached(monkeypatch, tmp_path) -> None:
     cache_mod.set_cache_path(str(tmp_path / "rc.db"))
-    monkeypatch.setattr("omega.config._config", _config(ttl=60))
+    monkeypatch.setattr("sentinel.config._config", _config(ttl=60))
     adapter = EchoAdapter()
     counter: list[int] = [0]
     _counting_spawn(monkeypatch, counter, ("out", "boom", 3, 5.0))
@@ -154,7 +154,7 @@ async def test_failure_not_cached(monkeypatch, tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_caching_disabled_by_default(monkeypatch, tmp_path) -> None:
     cache_mod.set_cache_path(str(tmp_path / "rc.db"))
-    monkeypatch.setattr("omega.config._config", OmegaConfig(rate_limits=RateLimitConfig(enabled=False)))
+    monkeypatch.setattr("sentinel.config._config", SentinelConfig(rate_limits=RateLimitConfig(enabled=False)))
     adapter = EchoAdapter()
     counter: list[int] = [0]
     _counting_spawn(monkeypatch, counter, ("out", "", 0, 5.0))
@@ -165,7 +165,7 @@ async def test_caching_disabled_by_default(monkeypatch, tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_expired_ttl_spawns_again(monkeypatch, tmp_path) -> None:
     cache_mod.set_cache_path(str(tmp_path / "rc.db"))
-    monkeypatch.setattr("omega.config._config", _config(ttl=0.05))
+    monkeypatch.setattr("sentinel.config._config", _config(ttl=0.05))
     adapter = EchoAdapter()
     counter: list[int] = [0]
     _counting_spawn(monkeypatch, counter, ("out", "", 0, 5.0))
@@ -177,7 +177,7 @@ async def test_expired_ttl_spawns_again(monkeypatch, tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_input_data_distinguishes_cache_entries(monkeypatch, tmp_path) -> None:
     cache_mod.set_cache_path(str(tmp_path / "rc.db"))
-    monkeypatch.setattr("omega.config._config", OmegaConfig(
+    monkeypatch.setattr("sentinel.config._config", SentinelConfig(
         tools={"echo_adapter": ToolConfig(name="echo_adapter", cache_ttl_seconds=60)},
         rate_limits=RateLimitConfig(enabled=False),
     ))
