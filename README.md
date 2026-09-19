@@ -428,3 +428,11 @@ Adjust via environment variables:
 ```bash
 SENTINEL_RATE_POLICY=relaxed SENTINEL_GLOBAL_RPS=50 SENTINEL_TARGET_RPS=20 python -m sentinel.mcp
 ```
+
+## Documentation
+
+- [`docs/TECHSTACK.md`](docs/TECHSTACK.md) -- every technology used, explained from scratch and why it was chosen
+- [`docs/COMPARISON.md`](docs/COMPARISON.md) -- SENTINEL vs. every known pentest / bug-bounty / web-security / CTF MCP (named comparison)
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- system architecture and module map
+- [`docs/SECURITY.md`](docs/SECURITY.md) -- security & authorization model
+- [`docs/TESTING.md`](docs/TESTING.md) -- test guide

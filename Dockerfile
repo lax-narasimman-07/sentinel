@@ -30,4 +30,4 @@ EXPOSE 8000 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/api/system || exit 1
 
-CMD ["python", "-m", "sentinel.cli", "start", "--all"]
+CMD ["sentinel", "start", "--dashboard-host", "0.0.0.0", "--mcp-host", "0.0.0.0"]
