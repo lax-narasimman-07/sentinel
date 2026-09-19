@@ -66,7 +66,7 @@ Validates the MCP protocol layer -- handshake, tool listing, and individual tool
 | Test | Description |
 |---|---|
 | `test_initialize_handshake` | MCP ping after initialization |
-| `test_list_tools_returns_expected` | All 30+ expected tools are registered |
+| `test_list_tools_returns_expected` | All 62 expected tools are registered |
 | `test_list_tools_not_empty` | Server reports > 0 tools |
 | `test_sentinel_doctor_returns_structured_output` | Doctor returns Python version, platform, tools |
 | `test_sentinel_engagement_create` | Engagement creation via MCP |

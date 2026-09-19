@@ -16,7 +16,7 @@ Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
 - **Hypothesis-Driven Testing** -- Structured vulnerability hypothesis lifecycle
 - **Asset Graph** -- In-memory + persistent graph for reasoning about discovered assets
 - **Reporting** -- Markdown, HTML, and JSON report generation with findings and evidence
-- **30+ MCP Tools** -- Complete toolset exposed via MCP protocol
+- **62 MCP Tools** -- Complete toolset exposed via MCP protocol
 
 ## Installation
 

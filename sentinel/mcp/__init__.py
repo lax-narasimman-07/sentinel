@@ -70,7 +70,8 @@ class SentinelServer:
         register_all_recon_adapters(self.orchestrator.registry)
         self._register_tools()
         self._initialized = True
-        logger.info("SENTINEL server initialized")
+        registered = len(await self.mcp.list_tools())
+        logger.info("SENTINEL server initialized with %d MCP tools registered", registered)
 
     def run(self, transport: str = "stdio", host: str = "127.0.0.1", port: int = 8443) -> None:
         """Run the MCP server (blocking). Initializes, then delegates to MCPServer.run()."""
@@ -80,6 +81,18 @@ class SentinelServer:
     async def shutdown(self) -> None:
         if self.db:
             await self.db.close()
+
+    async def mcp_tools(self) -> list[str]:
+        """Return the authoritative list of MCP tool names registered on the served server.
+
+        Single source of truth for the MCP tool surface: the same registry the
+        MCP protocol serves on ``tools/list``. Never derive this count from the
+        adapter registry or any hard-coded constant.
+        """
+        return sorted(tool.name for tool in await self.mcp.list_tools())
+
+    async def mcp_tool_count(self) -> int:
+        return len(await self.mcp_tools())
 
     async def _scope_denial(self, engagement_id: str, target: str, action: str, risk_level: str = "passive") -> None:
         """Authorize `target` for `action`, raising :class:`ToolError` if denied.
@@ -1179,7 +1192,7 @@ class SentinelServer:
 
         @mcp.tool(
             name="sentinel_health_check",
-            description="Operational health: DB connectivity, cache, worker pool, tool registry readiness",
+            description="Operational health: DB connectivity, cache, worker pool, tool registry readiness, MCP tool surface",
             annotations=ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
         )
         @guarded_tool()
@@ -1197,7 +1210,17 @@ class SentinelServer:
                 db_ok = False
             ready["database"] = db_ok
 
-            # 2. Tool registry / external binaries
+            # 2. MCP tool registry / exposed tool surface (authoritative count)
+            mcp_tools_registered = 0
+            mcp_tool_names: list[str] = []
+            try:
+                mcp_tool_names = await server.mcp_tools()
+                mcp_tools_registered = len(mcp_tool_names)
+            except Exception:  # noqa: BLE001 - health reporting must never raise
+                mcp_tools_registered = 0
+            ready["mcp_tools"] = mcp_tools_registered > 0
+
+            # 3. External security binaries / adapter registry
             try:
                 caps = await orch.registry.discover_all()
                 core_tools = {
@@ -1217,7 +1240,7 @@ class SentinelServer:
                 installed, missing, caps = [], [], {}
                 ready["tool_registry"] = False
 
-            # 3. Cache availability (fail-open by design)
+            # 4. Cache availability (fail-open by design)
             try:
                 from sentinel.core.cache import cache_get
                 probe = await cache_get("__health_probe__", 0)
@@ -1227,7 +1250,7 @@ class SentinelServer:
                 ready["cache"] = False
                 cache_ok = False
 
-            # 4. Worker pool
+            # 5. Worker pool
             try:
                 from sentinel.core.concurrency import get_worker_pool
                 pool = get_worker_pool()
@@ -1238,7 +1261,7 @@ class SentinelServer:
                 worker_capacity = 0
 
             # Overall assessment
-            status = "ready" if all(ready.get(k) for k in ("database", "tool_registry", "worker_pool")) else "degraded"
+            status = "ready" if all(ready.get(k) for k in ("database", "mcp_tools", "tool_registry", "worker_pool")) else "degraded"
 
             return json.dumps({
                 "status": status,
@@ -1246,11 +1269,17 @@ class SentinelServer:
                 "services": {
                     "worker_pool_capacity": worker_capacity,
                 },
-                "tools": {
+                "security_tools": {
                     "installed": installed,
                     "missing": missing,
+                    "installed_count": len(installed),
+                    "missing_count": len(missing),
                 },
-                "registry_size": len(caps),
+                "mcp_tools": {
+                    "registered": mcp_tools_registered,
+                    "names": mcp_tool_names,
+                },
+                "adapter_registry_size": len(caps),
                 "database": "connected" if db_ok else "unavailable",
                 "cache": "available" if cache_ok else "empty/fail-open",
             }, indent=2)

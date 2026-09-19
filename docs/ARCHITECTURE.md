@@ -2,7 +2,7 @@
 
 ## System Overview
 
-SENTINEL is an MCP (Model Context Protocol) server that exposes 30+ security research tools through a standardized interface. The system is built around a layered architecture:
+SENTINEL is an MCP (Model Context Protocol) server that exposes 62 security research tools through a standardized interface. The system is built around a layered architecture:
 
 ```
 MCP Client (OpenCode, Claude, etc.)
@@ -104,7 +104,7 @@ Defined in `sentinel/storage/__init__.py`:
 | `workspaces` | Isolated per-engagement working directories | engagement_id |
 | `requests_history` | HTTP request/response history | url |
 
-## MCP Tools (30+ Tools)
+## MCP Tools (62 Tools)
 
 ### Engagement Management
 | Tool | Description |

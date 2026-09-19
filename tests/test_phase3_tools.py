@@ -595,10 +595,15 @@ async def test_health_check_reports_status():
         data = _json(r)
         assert data["status"] in ("ready", "degraded")
         assert data["database"] == "connected"
-        assert data["registry_size"] > 0
-        assert isinstance(data["tools"]["installed"], list)
-        assert isinstance(data["tools"]["missing"], list)
+        # External security-binary adapters are reported under their own field.
+        assert data["adapter_registry_size"] > 0
+        # The authoritative MCP tool surface is reported dynamically.
+        assert data["mcp_tools"]["registered"] > 0
+        assert isinstance(data["mcp_tools"]["names"], list)
+        assert data["security_tools"]["installed_count"] == len(data["security_tools"]["installed"])
+        assert isinstance(data["security_tools"]["installed"], list)
+        assert isinstance(data["security_tools"]["missing"], list)
         # Core tool set is always reported
-        all_tools = set(data["tools"]["installed"]) | set(data["tools"]["missing"])
+        all_tools = set(data["security_tools"]["installed"]) | set(data["security_tools"]["missing"])
         assert "nmap" in all_tools
         assert "nuclei" in all_tools

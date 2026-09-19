@@ -488,3 +488,105 @@ async def test_server_rejects_bad_tool_name():
         assert result.is_error, (
             f"Expected error for unknown tool, got: {result.content}"
         )
+
+
+def _declared_tool_names() -> list[str]:
+    """Derive the intended MCP tool inventory from the registration source.
+
+    This is the authoritative expectation: every ``@mcp.tool`` decorated handler
+    declared inside ``SentinelServer._register_tools`` must be exposed by the
+    server. Nothing is hard-coded here — the expectation follows the code.
+    """
+    import inspect
+    import re
+
+    from sentinel.mcp import SentinelServer
+    source = inspect.getsource(SentinelServer._register_tools)
+    return sorted(set(re.findall(r'name="(sentinel_[a-z_]+)"', source)))
+
+
+@pytest.mark.asyncio
+async def test_list_tools_returns_complete_declared_inventory():
+    """tools/list must expose EVERY declared @mcp.tool handler — nothing dropped."""
+    declared = _declared_tool_names()
+    assert len(declared) >= len(EXPECTED_TOOLS), (
+        "Declared source inventory smaller than the curated expectation list"
+    )
+
+    async with connected_server() as session:
+        result = await asyncio.wait_for(
+            session.list_tools(), timeout=TOOL_CALL_TIMEOUT
+        )
+        served = sorted(t.name for t in result.tools)
+        assert served == declared, (
+            f"MCP tools/list ≠ declared registration. "
+            f"Missing from server: {set(declared) - set(served)}. "
+            f"Extra on server: {set(served) - set(declared)}."
+        )
+
+    # Representative coverage — every tool category must be present.
+    category_reps = {
+        "engagement": "sentinel_engagement_create",
+        "scope": "sentinel_scope_add_rule",
+        "recon": "sentinel_recon_subdomains",
+        "web": "sentinel_web_headers",
+        "api": "sentinel_api_openapi",
+        "http": "sentinel_http_request",
+        "scan": "sentinel_scan",
+        "graph": "sentinel_graph_add_node",
+        "hypothesis": "sentinel_hypothesis_create",
+        "finding": "sentinel_finding_create",
+        "evidence": "sentinel_evidence_list",
+        "ctf": "sentinel_ctf_challenge_create",
+        "reporting": "sentinel_report_generate",
+        "discovery": "sentinel_tools_list",
+        "audit": "sentinel_audit_log",
+        "diagnostics": "sentinel_health_check",
+    }
+    for category, tool in category_reps.items():
+        assert tool in declared, f"Missing representative tool for category '{category}': {tool}"
+
+
+@pytest.mark.asyncio
+async def test_health_check_mcp_count_matches_tools_list():
+    """Health check must report the MCP tool count dynamically — not a stale constant.
+
+    The invariant: ``mcp_tools.registered`` reported by sentinel_health_check must
+    equal the actual tools/list exposure, and must be distinct from the external
+    security-binary adapter count (which previously masqueraded as "tools registered").
+    """
+    async with connected_server() as session:
+        listed = await asyncio.wait_for(
+            session.list_tools(), timeout=TOOL_CALL_TIMEOUT
+        )
+        served_count = len(listed.tools)
+
+        result = await asyncio.wait_for(
+            session.call_tool("sentinel_health_check", {}),
+            timeout=TOOL_CALL_TIMEOUT,
+        )
+        assert not result.is_error, f"health_check error: {result.content}"
+        data = _parse_json(_extract_text(result))
+
+        mcp = data.get("mcp_tools", {})
+        assert mcp.get("registered") == served_count, (
+            f"health_check mcp_tools.registered={mcp.get('registered')} != "
+            f"tools/list count={served_count}"
+        )
+        assert set(mcp.get("names", [])) == {t.name for t in listed.tools}
+
+        # External security-binary adapter count is a DIFFERENT number and must be
+        # reported under its own field, never as the MCP tool count.
+        adapter_size = data.get("adapter_registry_size")
+        assert isinstance(adapter_size, int) and adapter_size > 0
+        assert adapter_size != served_count, (
+            "adapter_registry_size must not be conflated with the MCP tool count"
+        )
+
+        # Security binaries are reported separately.
+        security = data.get("security_tools", {})
+        assert isinstance(security.get("installed"), list)
+        assert security.get("installed_count") == len(security.get("installed", []))
+
+        assert data.get("database") in ("connected", "unavailable")
+        assert data.get("status") in ("ready", "degraded")

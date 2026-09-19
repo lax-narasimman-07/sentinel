@@ -65,7 +65,7 @@ The `pentest_*` toolset in this environment is **DMontgomery40/pentest-mcp**
 | CTF module (challenges, flags, hypothesis ledger) | ❌ | ✅ |
 | Hypothesis-driven testing | ❌ | ✅ |
 | Asset graph + pathfinding | ❌ | ✅ |
-| Web/API security (headers, CORS, cookies, JWT, ...) | ❌ | ✅ (13 tools) |
+| Web/API security (headers, CORS, cookies, JWT, ...) | ❌ | ✅ (14 tools) |
 | Report generation (md/html/json + authorization) | ❌ | ✅ |
 | REST/UI dashboard | ❌ | ✅ (FastAPI, :8000) |
 | Audit ledger (SQLite `authorizations` + JSONL) | ❌ | ✅ |

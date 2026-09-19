@@ -17,7 +17,7 @@ Version 1.0.0 | Python 3.11+ | MCP SDK 2.0+
 - **Asset Graph** -- In-memory + persistent graph for reasoning about discovered assets
 - **Vulnerability Triage** -- nuclei/nikto scan results auto-map to `Finding` records (severity-guided, scope-stamped, deduplicated) when an engagement is active
 - **Reporting** -- Markdown, HTML, and JSON report generation with findings and evidence
-- **60+ MCP Tools** -- Complete toolset exposed via MCP protocol
+- **62 MCP Tools** -- Complete toolset exposed via MCP protocol
 
 ## Why SENTINEL vs. other security MCPs
 
