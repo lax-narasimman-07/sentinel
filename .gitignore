@@ -54,3 +54,4 @@ htmlcov/
 *.json
 !pyproject.json
 !package.json
+.opencode/SESSION_STATE.md
