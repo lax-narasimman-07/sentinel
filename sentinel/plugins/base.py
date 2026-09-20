@@ -22,7 +22,7 @@ class PluginState(StrEnum):
 @dataclass
 class PluginMeta:
     name: str
-    version: str = "0.1.0"
+    version: str = "1.0.0"
     description: str = ""
     author: str = ""
     capabilities: list[str] = field(default_factory=list)

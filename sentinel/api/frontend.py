@@ -236,7 +236,7 @@ def get_dashboard_html() -> str:
         ...data.jobs.slice(-3).map(j => ({ text: `Job: ${j.tool_name || j.workflow || 'unknown'}`, status: j.status, time: j.started_at })),
       ].sort((a, b) => (b.time || '').localeCompare(a.time || '')).slice(0, 8);
       return React.createElement('div', { className: 'fade-in' },
-        React.createElement(PageHeader, { title: 'Security Dashboard', subtitle: 'SENTINEL Security Platform v0.1.0' }),
+        React.createElement(PageHeader, { title: 'Security Dashboard', subtitle: 'SENTINEL Security Platform v1.0.0' }),
         React.createElement('div', { className: 'grid grid-cols-2 md:grid-cols-4 gap-4 mb-8' },
           stats.map(s => React.createElement(Card, { key: s.label, className: 'p-5 cursor-pointer hover:border-gray-600/60 transition-all', onClick: () => setPage(s.page) },
             React.createElement('div', { className: 'flex items-center justify-between mb-3' },
@@ -1304,7 +1304,7 @@ def get_dashboard_html() -> str:
         React.createElement('div', { className: 'p-4 border-b border-gray-800/60 flex items-center justify-between' },
           !collapsed && React.createElement('div', null,
             React.createElement('h1', { className: 'text-lg font-bold text-white' }, 'SENTINEL'),
-            React.createElement('p', { className: 'text-[10px] text-gray-500 mt-0.5' }, 'Security Platform v0.1.0')),
+            React.createElement('p', { className: 'text-[10px] text-gray-500 mt-0.5' }, 'Security Platform v1.0.0')),
           React.createElement('button', { onClick: () => setCollapsed(!collapsed), className: 'text-gray-500 hover:text-white text-sm' }, collapsed ? '\u25B6' : '\u25C0')),
         React.createElement('div', { className: 'flex-1 overflow-y-auto py-2' },
           NAV_GROUPS.map(group => React.createElement('div', { key: group.id, className: 'mb-1' },
@@ -1331,7 +1331,7 @@ def get_dashboard_html() -> str:
       useEffect(() => { api.get('/api/engagements').then(r => setEngagements(r.engagements || [])).catch(() => {}); }, []);
       return React.createElement('div', { className: 'h-12 bg-[#111827]/80 border-b border-gray-800/60 flex items-center justify-between px-6' },
         React.createElement('div', { className: 'flex items-center gap-4' },
-          React.createElement('span', { className: 'text-xs text-gray-500' }, 'SENTINEL v0.1.0')),
+          React.createElement('span', { className: 'text-xs text-gray-500' }, 'SENTINEL v1.0.0')),
         React.createElement('div', { className: 'flex items-center gap-3' },
           React.createElement('label', { className: 'text-xs text-gray-500' }, 'Engagement:'),
           React.createElement('select', { value: engagementId || '', onChange: e => setEngagementId(e.target.value),

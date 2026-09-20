@@ -2,7 +2,7 @@
 
 **Agentic Security Research Platform** -- An MCP server for CTF solving, authorized bug bounty research, penetration testing, web/API security testing, reverse engineering, and reconnaissance.
 
-Version 0.1.0 | Python 3.11+ | MCP SDK 2.0+
+Version 1.0.0 | Python 3.11+ | MCP SDK 2.0+
 
 ## Features
 
